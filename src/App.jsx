@@ -214,6 +214,16 @@ function App() {
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }, [monthTxns])
 
+  const dailySpend = useMemo(() => {
+    const map = new Map()
+    for (const t of monthTxns) {
+      if (t.amount >= 0) continue
+      map.set(t.date.slice(8, 10), (map.get(t.date.slice(8, 10)) || 0) - t.amount)
+    }
+    return [...map.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
+  }, [monthTxns])
+  const maxDay = dailySpend.reduce((m, [, v]) => Math.max(m, v), 0)
+
   const statementTxns = useMemo(
     () => [...monthTxns].sort((a, b) => (a.date > b.date ? 1 : -1)),
     [monthTxns],
@@ -641,129 +651,68 @@ function App() {
         </div>
 
         <section className="panel no-print">
-          <h2>{form.editingId ? 'Edit Transaction' : 'Add Transaction'}</h2>
-          <form className="add-form" onSubmit={addTxn}>
-            <div className="type-toggle">
-              <button
-                type="button"
-                className={form.type === 'expense' ? 'seg active expense' : 'seg expense'}
-                onClick={() => setForm((f) => ({ ...f, type: 'expense' }))}
-              >
-                − Expense
-              </button>
-              <button
-                type="button"
-                className={form.type === 'income' ? 'seg active income' : 'seg income'}
-                onClick={() => setForm((f) => ({ ...f, type: 'income' }))}
-              >
-                + Income
-              </button>
+          <div className="panel-head">
+            <h2>Dashboard</h2>
+            <span className="panel-sub">{formatMonth(month)}</span>
+          </div>
+          <div className="stats">
+            <div className="stat-card stat-spent">
+              <span className="stat-label">Spent</span>
+              <span className="stat-num">{fmtMoney(spent)}</span>
+              <span className="stat-hint">{catTotals.length} categories</span>
             </div>
-            <div className="row">
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Amount"
-                value={form.amount}
-                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                required
-                autoFocus
-              />
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-              />
-              <select
-                value={form.method}
-                title="Payment method"
-                onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}
-              >
-                {['UPI', 'Cash', 'Card', 'Transfer', 'Other'].map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
+            <div className="stat-card stat-income">
+              <span className="stat-label">Deposited</span>
+              <span className="stat-num">{fmtMoney(income)}</span>
+              <span className="stat-hint">money in</span>
+            </div>
+            <div className="stat-card stat-net">
+              <span className="stat-label">Net</span>
+              <span className={`stat-num ${income - spent < 0 ? 'spent' : 'income'}`}>{fmtMoney(income - spent)}</span>
+              <span className="stat-hint">{monthTxns.length} transactions</span>
+            </div>
+          </div>
+          {dailySpend.length > 0 && (
+            <div className="trend-wrap">
+              <span className="trend-title">Daily spending</span>
+              <div className="trend">
+                {dailySpend.map(([day, amt]) => (
+                  <div className="trend-col" key={day} title={`${day} ${formatMonth(month).split(' ')[0]}: ${fmtMoney(amt)}`}>
+                    <div className="trend-bar" style={{ height: `${Math.max(5, (amt / maxDay) * 100)}%` }} />
+                    <span className="trend-day">{day}</span>
+                  </div>
                 ))}
-              </select>
+              </div>
             </div>
-              <input
-                type="text"
-                placeholder="Description (optional) e.g. Swiggy order"
-                value={form.desc}
-                onChange={(e) => {
-                  const v = e.target.value
-                  setForm((f) => {
-                    const amountNum = Math.abs(parseFloat(f.amount)) || 1
-                    const signed = f.type === 'expense' ? -amountNum : amountNum
-                    const suggested = categorize(v, state.people, signed)
-                    return f.category === 'Food' && suggested !== 'Other'
-                      ? { ...f, desc: v, category: suggested }
-                      : { ...f, desc: v }
-                  })
-                }}
-              />
-            <div className="chips">
-              {state.categories.map((c) => (
-                <button
-                  type="button"
-                  key={c}
-                  className={form.category === c ? 'chip active' : 'chip'}
-                  style={form.category === c ? { background: colorFor(c), borderColor: colorFor(c) } : {}}
-                  onClick={() => setForm((f) => ({ ...f, category: c }))}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-            <div className="row">
-              <input
-                type="text"
-                placeholder="New category name"
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-              />
-              <button type="button" className="ghost bordered" onClick={addCustomCategory}>
-                + Add
-              </button>
-            </div>
-            <button className="primary" type="submit">
-              {form.editingId ? 'Save Changes' : 'Add Transaction'}
-            </button>
-            {form.editingId && (
-              <button type="button" className="ghost" onClick={() => setForm((f) => ({ ...f, editingId: null, amount: '' }))}>
-                Cancel edit
-              </button>
-            )}
-          </form>
-        </section>
-
-        <section className="panel no-print">
-          <h2>Where it went</h2>
-          {catTotals.length === 0 ? (
-            <p className="empty">No spending recorded this month yet.</p>
+          )}
+          {catTotals.length > 0 ? (
+            <>
+              <span className="trend-title">Where it went</span>
+              <div className="bars">
+                {catTotals.map(([cat, total]) => (
+                  <div className="bar-row" key={cat}>
+                    <div className="bar-top">
+                      <span className="bar-cat">
+                        <span className="dot" style={{ background: colorFor(cat) }} />
+                        {cat}
+                      </span>
+                      <span className="bar-amt">
+                        {fmtMoney(total)}
+                        <span className="bar-pct">{Math.round((total / spent) * 100)}%</span>
+                      </span>
+                    </div>
+                    <div className="bar-track">
+                      <div
+                        className="bar-fill"
+                        style={{ width: `${Math.max(2, (total / spent) * 100)}%`, background: colorFor(cat) }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
-            <div className="bars">
-              {catTotals.map(([cat, total]) => (
-                <div className="bar-row" key={cat}>
-                  <div className="bar-top">
-                    <span className="bar-cat">
-                      <span className="dot" style={{ background: colorFor(cat) }} />
-                      {cat}
-                    </span>
-                    <span className="bar-amt">
-                      {fmtMoney(total)}
-                      <span className="bar-pct">{Math.round((total / spent) * 100)}%</span>
-                    </span>
-                  </div>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill"
-                      style={{ width: `${Math.max(2, (total / spent) * 100)}%`, background: colorFor(cat) }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="empty">No spending recorded this month yet.</p>
           )}
         </section>
 
@@ -995,6 +944,106 @@ function App() {
               Re-categorize all "Other" transactions
             </button>
           </div>
+        </section>
+
+        <section className="panel no-print">
+          <h2>{form.editingId ? 'Edit Transaction' : 'Add Transaction'}</h2>
+          <form className="add-form" onSubmit={addTxn}>
+            <div className="type-toggle">
+              <button
+                type="button"
+                className={form.type === 'expense' ? 'seg active expense' : 'seg expense'}
+                onClick={() => setForm((f) => ({ ...f, type: 'expense' }))}
+              >
+                − Expense
+              </button>
+              <button
+                type="button"
+                className={form.type === 'income' ? 'seg active income' : 'seg income'}
+                onClick={() => setForm((f) => ({ ...f, type: 'income' }))}
+              >
+                + Income
+              </button>
+            </div>
+            <div className="row">
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Amount"
+                value={form.amount}
+                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                required
+              />
+              <input
+                type="date"
+                value={form.date}
+                onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+              />
+              <select
+                value={form.method}
+                title="Payment method"
+                onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}
+              >
+                {['UPI', 'Cash', 'Card', 'Transfer', 'Other'].map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <input
+              type="text"
+              placeholder="Description (optional) e.g. Swiggy order"
+              value={form.desc}
+              onChange={(e) => {
+                const v = e.target.value
+                setForm((f) => {
+                  const amountNum = Math.abs(parseFloat(f.amount)) || 1
+                  const signed = f.type === 'expense' ? -amountNum : amountNum
+                  const suggested = categorize(v, state.people, signed)
+                  return f.category === 'Food' && suggested !== 'Other'
+                    ? { ...f, desc: v, category: suggested }
+                    : { ...f, desc: v }
+                })
+              }}
+            />
+            <div className="chips">
+              {state.categories.map((c) => (
+                <button
+                  type="button"
+                  key={c}
+                  className={form.category === c ? 'chip active' : 'chip'}
+                  style={form.category === c ? { background: colorFor(c), borderColor: colorFor(c) } : {}}
+                  onClick={() => setForm((f) => ({ ...f, category: c }))}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <div className="row">
+              <input
+                type="text"
+                placeholder="New category name"
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+              />
+              <button type="button" className="ghost bordered" onClick={addCustomCategory}>
+                + Add
+              </button>
+            </div>
+            <button className="primary" type="submit">
+              {form.editingId ? 'Save Changes' : 'Add Transaction'}
+            </button>
+            {form.editingId && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setForm((f) => ({ ...f, editingId: null, amount: '' }))}
+              >
+                Cancel edit
+              </button>
+            )}
+          </form>
         </section>
 
         <section className="panel no-print">
