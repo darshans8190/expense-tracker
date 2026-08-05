@@ -277,6 +277,51 @@ h1 {
   font-size: 13px;
 }
 
+.pv-people-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 10px;
+}
+
+.pv-people-names {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.pv-person-tag {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.pv-person-tag.sent {
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+
+.pv-person-tag.received {
+  color: #22c55e;
+  border-color: #86efac;
+}
+
+.pv-person-tag.both {
+  color: #6366f1;
+  border-color: #a5b4fc;
+}
+
 .people-totals {
   display: flex;
   flex-direction: column;

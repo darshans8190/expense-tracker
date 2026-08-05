@@ -95,8 +95,24 @@ export function cleanUPIDesc(desc) {
   return name ? `UPI/${name}` : s
 }
 
-export function personTotals(name, txns) {
-  const lower = String(name || '').toLowerCase()
+export function detectPeople(txns) {
+  const map = new Map()
+  for (const t of txns) {
+    const name = (extractPersonName(t.desc) || '').slice(0, 30).trim()
+    if (!name) continue
+    const key = normalizeName(name)
+    const dir = t.amount < 0 ? 'sent' : 'received'
+    if (!map.has(key)) {
+      map.set(key, { name, direction: dir })
+    } else {
+      const ex = map.get(key)
+      map.set(key, { ...ex, direction: ex.direction === dir ? dir : 'both' })
+    }
+  }
+  return [...map.values()]
+}
+
+export function personTotals(name, txns) {  const lower = String(name || '').toLowerCase()
   if (!lower) return { sent: 0, received: 0 }
   const variants = new Set([lower, lower.replace(/\s+/g, '')])
   let sent = 0

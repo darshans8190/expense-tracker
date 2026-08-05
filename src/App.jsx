@@ -13,6 +13,7 @@ import {
   categorize,
   extractPersonName,
   normalizeName,
+  detectPeople,
   personTotals,
   exportCSV,
   CATEGORY_COLORS,
@@ -137,6 +138,7 @@ function App() {
   const [newCategory, setNewCategory] = useState('')
   const [importMsg, setImportMsg] = useState('')
   const [preview, setPreview] = useState(null)
+  const [detected, setDetected] = useState([])
   const [busy, setBusy] = useState(false)
   const [personName, setPersonName] = useState('')
   const [personCat, setPersonCat] = useState('Food')
@@ -340,6 +342,7 @@ function App() {
         return
       }
       setPreview(parsed)
+      setDetected(detectPeople(parsed))
       if (fileRef.current) fileRef.current.value = ''
     }
     reader.readAsText(file)
@@ -374,6 +377,7 @@ function App() {
         )
       } else {
         setPreview(parsed)
+        setDetected(detectPeople(parsed))
         setImportMsg('')
       }
     } catch (err) {
@@ -405,6 +409,7 @@ function App() {
       return
     }
     setPreview(parsed)
+    setDetected(detectPeople(parsed))
     setImportMsg('')
   }
 
@@ -501,8 +506,11 @@ function App() {
         people: s.people,
       }
     })
-    setImportMsg(`Imported ${preview.length} transactions.`)
+    setImportMsg(
+      `Imported ${preview.length} transactions.${detected.length > 0 ? ` People found: ${detected.map((d) => d.name).join(', ')}.` : ''}`,
+    )
     setPreview(null)
+    setDetected([])
   }
 
   function handleExport() {
@@ -948,12 +956,28 @@ function App() {
       </main>
 
       {preview && (
-        <div className="modal-backdrop no-print" onClick={() => setPreview(null)}>
+        <div className="modal-backdrop no-print" onClick={() => { setPreview(null); setDetected([]) }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Review imported transactions</h2>
             <p className="hint">
               Found {preview.length}. Check amounts are right, then import. You can edit or delete any row afterwards.
             </p>
+            {detected.length > 0 && (
+              <div className="pv-people-banner">
+                <div className="pv-people-names">
+                  <strong>People in this statement:</strong>
+                  {detected.map((d) => (
+                    <span key={d.name} className={`pv-person-tag ${d.direction}`}>
+                      {d.name}
+                      {d.direction === 'sent' ? ' ↑' : d.direction === 'received' ? ' ↓' : ' ⇅'}
+                    </span>
+                  ))}
+                </div>
+                <button type="button" className="ghost bordered" onClick={addAllPeopleFromPreview}>
+                  + Add all people
+                </button>
+              </div>
+            )}
             <ul className="preview-list">
               <li className="preview-head">
                 <span className="pv-date">Date</span>
@@ -993,7 +1017,7 @@ function App() {
               <button type="button" className="ghost bordered" onClick={addAllPeopleFromPreview}>
                 + Add all people
               </button>
-              <button className="ghost" onClick={() => setPreview(null)}>
+              <button className="ghost" onClick={() => { setPreview(null); setDetected([]) }}>
                 Cancel
               </button>
             </div>
