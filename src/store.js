@@ -163,8 +163,6 @@ export function categorize(desc, people = [], amount = -1) {  const lower = Stri
   for (const rule of FLAT_RULES) {
     if (ruleMatches(rule, lower)) return rule.cat
   }
-  const pname = extractPersonName(desc)
-  if (pname) return pname.trim().slice(0, 30).toUpperCase()
   return 'Other'
 }
 
@@ -209,19 +207,24 @@ export function loadState() {
     for (const d of DEFAULT_CATEGORIES) {
       if (!categories.includes(d)) categories.push(d)
     }
-    const txns = dedupeTxns(
+    const txnsRaw = dedupeTxns(
       (Array.isArray(data.txns) ? data.txns : []).filter((t) => t && typeof t === 'object'),
-    ).map((t) => {
-      if (t.category === 'Other') {
-        const pname = extractPersonName(t.desc)
-        if (pname) {
-          const cat = pname.trim().slice(0, 30).toUpperCase()
-          if (!categories.includes(cat)) categories.push(cat)
-          return { ...t, category: cat }
-        }
+    )
+    const txns = txnsRaw.map((t) => {
+      const detected = extractPersonName(t.desc)
+      const cat = String(t.category || '')
+      const catIsDefault = DEFAULT_CATEGORIES.includes(cat)
+      const catIsDetected = detected && cat.toUpperCase() === detected.trim().toUpperCase().slice(0, 30)
+      if (!catIsDefault && (catIsDetected || cat.length <= 2)) {
+        return { ...t, category: categorize(t.desc, [], t.amount) }
       }
       return t
     })
+    const used = new Set(txns.map((t) => t.category))
+    const cleanedCategories = [
+      ...DEFAULT_CATEGORIES,
+      ...categories.filter((c) => !DEFAULT_CATEGORIES.includes(c) && used.has(c)),
+    ]
     const peopleMap = new Map()
     for (const p of (Array.isArray(data.people) ? data.people : [])) {
       if (!p || typeof p !== 'object') continue
@@ -240,7 +243,7 @@ export function loadState() {
     return {
       txns,
       balances: data.balances && typeof data.balances === 'object' ? data.balances : {},
-      categories,
+      categories: cleanedCategories,
       people,
     }
   } catch {
@@ -338,20 +341,41 @@ function parseCSV(text) {
 export function parseBankCSV(text, people = []) {
   const rows = parseCSV(text)
   const parsed = []
-  let start = 0
-  if (rows.length > 0) {
-    const header = rows[0].map((h) => h.toLowerCase())
-    if (header.some((h) => /date|amount|desc/.test(h))) start = 1
+  const header = (rows[0] || []).map((h) => String(h).toLowerCase().trim())
+  const idxOf = (...names) => {
+    for (const n of names) {
+      const i = header.findIndex((h) => h.includes(n))
+      if (i >= 0) return i
+    }
+    return -1
   }
-  for (let i = start; i < rows.length; i++) {
-    const [dateRaw, descRaw, amountRaw, catRaw, methodRaw] = rows[i]
-    const date = (dateRaw || '').trim()
+  const hasHeader =
+    idxOf('date') >= 0 && (idxOf('amount', 'debit', 'credit', 'deposit', 'withdrawal', 'type') >= 0)
+  const col = {
+    date: hasHeader ? idxOf('date') : 0,
+    desc: hasHeader ? idxOf('name', 'narrat', 'description', 'particular', 'note', 'remark') : 1,
+    amount: hasHeader ? idxOf('amount', 'value', 'debit', 'credit', 'deposit', 'withdrawal') : 2,
+    cat: hasHeader ? idxOf('category') : 3,
+    method: hasHeader ? idxOf('method', 'mode', 'channel', 'upi', 'bank') : 4,
+    type: hasHeader ? idxOf('type', 'dr', 'cr') : -1,
+    note: hasHeader ? idxOf('note', 'remark', 'memo', 'utr') : -1,
+  }
+  for (let i = hasHeader ? 1 : 0; i < rows.length; i++) {
+    const get = (idx) => (idx >= 0 ? String(rows[i][idx] || '').trim() : '')
+    const date = get(col.date)
+    const amountRaw = get(col.amount)
     if (!date || !amountRaw) continue
-    const num = parseFloat(String(amountRaw).replace(/[₹,\s]/g, ''))
+    let num = parseFloat(String(amountRaw).replace(/[₹,\s]/g, ''))
     if (Number.isNaN(num)) continue
-    const desc = cleanUPIDesc((descRaw || '').trim())
-    const cat = (catRaw || '').trim() || categorize(desc, people, num)
-    const method = (methodRaw || '').trim()
+    if (col.type >= 0) {
+      const type = get(col.type).toLowerCase()
+      if (/deb|withdr|pay|sent|spent|dr\b/.test(type)) num = -Math.abs(num)
+      else if (/cred|depos|rcvd|receiv|cr\b/.test(type)) num = Math.abs(num)
+    }
+    const desc = cleanUPIDesc(get(col.desc))
+    const cat = get(col.cat) || categorize(desc, people, num)
+    const method = get(col.method)
+    const note = get(col.note)
     let iso = date
     if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(date)) {
       const [a, b, c] = date.split('/').map(Number)
@@ -359,18 +383,31 @@ export function parseBankCSV(text, people = []) {
     } else if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(date)) {
       const [a, b, c] = date.split('-').map(Number)
       iso = `${c}-${String(a).padStart(2, '0')}-${String(b).padStart(2, '0')}`
+    } else {
+      const m = date.match(/^(\d{1,2})\s+([A-Za-z]{3})\.?\s+(\d{4})$/)
+      if (m) {
+        const mm = PDF_MONTHS[m[2].toLowerCase()]
+        if (mm) iso = `${m[3]}-${pad2(mm)}-${pad2(m[1])}`
+      }
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue
-    parsed.push({ date: iso, desc, amount: num, category: cat, method: method || undefined })
+    parsed.push({
+      date: iso,
+      desc,
+      amount: num,
+      category: cat,
+      method: method || undefined,
+      note: note || undefined,
+    })
   }
   return parsed
 }
 
 export function exportCSV(state) {
-  const header = 'Date,Description,Amount,Category,Method'
+  const header = 'Date,Description,Amount,Category,Method,Note'
   const lines = state.txns.map((t) => {
     const esc = (s) => `"${String(s).replace(/"/g, '""')}"`
-    return `${t.date},${esc(t.desc)},${t.amount},${esc(t.category)},${esc(t.method || '')}`
+    return `${t.date},${esc(t.desc)},${t.amount},${esc(t.category)},${esc(t.method || '')},${esc(t.note || '')}`
   })
   return [header, ...lines].join('\n')
 }

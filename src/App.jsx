@@ -208,6 +208,7 @@ function App() {
     method: 'UPI',
     editingId: null,
     photo: null,
+    note: '',
   })
   const [newCategory, setNewCategory] = useState('')
   const [importMsg, setImportMsg] = useState('')
@@ -321,6 +322,7 @@ function App() {
       category: form.category,
       method: form.method,
       photo: form.photo || null,
+      note: form.note.trim() || null,
     }
     setState((s) => {
       const exists = s.txns.some((t) => t.id === txn.id)
@@ -329,7 +331,7 @@ function App() {
         txns: exists ? s.txns.map((t) => (t.id === txn.id ? txn : t)) : [txn, ...s.txns],
       }
     })
-    setForm({ amount: '', type: 'expense', category: 'Food', desc: '', date: todayStr(), method: 'UPI', editingId: null, photo: null })
+    setForm({ amount: '', type: 'expense', category: 'Food', desc: '', date: todayStr(), method: 'UPI', editingId: null, photo: null, note: '' })
   }
 
   function pickPhoto(e) {
@@ -355,6 +357,7 @@ function App() {
       method: t.method || 'UPI',
       editingId: t.id,
       photo: t.photo || null,
+      note: t.note || '',
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -425,7 +428,7 @@ function App() {
     ]
     for (const t of statementTxns) {
       lines.push(
-        `${t.date} ${t.desc || t.category} [${t.category}] ${extractPersonName(t.desc) || '-'} ${t.method || '-'} ${t.amount < 0 ? 'Spent' : 'Deposited'} ${fmtMoney(Math.abs(t.amount))}`,
+        `${t.date} ${t.desc || t.category} [${t.category}] ${extractPersonName(t.desc) || '-'} ${t.method || '-'}${t.note ? ` note: ${t.note}` : ''} ${t.amount < 0 ? 'Spent' : 'Deposited'} ${fmtMoney(Math.abs(t.amount))}`,
       )
     }
     if (peopleMonth.length > 0) {
@@ -843,7 +846,10 @@ function App() {
                       {statementTxns.map((t) => (
                         <tr key={t.id}>
                           <td className="pb-date">{t.date}</td>
-                          <td className="pb-desc">{t.desc || t.category}</td>
+                          <td className="pb-desc">
+                            {t.desc || t.category}
+                            {t.note && <span className="pb-note">📝 {t.note}</span>}
+                          </td>
                           <td className="pb-cat">
                             <span
                               className="txn-cat"
@@ -919,6 +925,7 @@ function App() {
                     <span className="txn-date">{t.date.slice(8, 10)} {formatMonth(month).split(' ')[0]}</span>
                     <span className="txn-info">
                       <span className="txn-desc">{t.desc || t.category}</span>
+                      {t.note && <span className="txn-note">📝 {t.note}</span>}
                       <span className="txn-cat" style={{ color: colorFor(t.category), borderColor: colorFor(t.category) }}>
                         {t.category}
                       </span>
@@ -1102,6 +1109,12 @@ function App() {
                     : { ...f, desc: v }
                 })
               }}
+            />
+            <input
+              type="text"
+              placeholder="Note (optional) e.g. dinner with Rahul, birthday gift"
+              value={form.note}
+              onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
             />
             <div className="photo-row">
               <label className="btn-label">
