@@ -15,6 +15,7 @@ import {
   normalizeName,
   personTxns,
   personTotals,
+  extractPersonName,
   exportCSV,
   CATEGORY_COLORS,
   txnKey,
@@ -378,7 +379,7 @@ function App() {
     ]
     for (const t of statementTxns) {
       lines.push(
-        `${t.date} ${t.desc || t.category} ${t.amount < 0 ? 'Spent' : 'Deposited'} ${fmtMoney(Math.abs(t.amount))}`,
+        `${t.date} ${t.desc || t.category} [${t.category}] ${extractPersonName(t.desc) || '-'} ${t.method || '-'} ${t.amount < 0 ? 'Spent' : 'Deposited'} ${fmtMoney(Math.abs(t.amount))}`,
       )
     }
     if (peopleMonth.length > 0) {
@@ -779,44 +780,50 @@ function App() {
           ) : (
             <>
               {statementTxns.length > 0 && (
-                <table className="passbook">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Description</th>
-                      <th className="num">Spent</th>
-                      <th className="num">Deposited</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {statementTxns.map((t) => (
-                      <tr key={t.id}>
-                        <td className="pb-date">{t.date}</td>
-                        <td className="pb-desc">
-                          {t.desc || t.category}
-                          <span
-                            className="txn-cat"
-                            style={{ color: colorFor(t.category), borderColor: colorFor(t.category) }}
-                          >
-                            {t.category}
-                          </span>
-                          {t.method && <span className="txn-method">{t.method}</span>}
-                        </td>
-                        <td className="num pb-spent">{t.amount < 0 ? fmtMoney(-t.amount) : ''}</td>
-                        <td className="num pb-income">{t.amount > 0 ? fmtMoney(t.amount) : ''}</td>
+                <div className="passbook-wrap">
+                  <table className="passbook">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th>Category</th>
+                        <th>Person</th>
+                        <th>Method</th>
+                        <th className="num">Spent</th>
+                        <th className="num">Deposited</th>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan="2" className="pb-total">
-                        Total
-                      </td>
-                      <td className="num pb-spent">{fmtMoney(spent)}</td>
-                      <td className="num pb-income">{fmtMoney(income)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </thead>
+                    <tbody>
+                      {statementTxns.map((t) => (
+                        <tr key={t.id}>
+                          <td className="pb-date">{t.date}</td>
+                          <td className="pb-desc">{t.desc || t.category}</td>
+                          <td className="pb-cat">
+                            <span
+                              className="txn-cat"
+                              style={{ color: colorFor(t.category), borderColor: colorFor(t.category) }}
+                            >
+                              {t.category}
+                            </span>
+                          </td>
+                          <td className="pb-person">{extractPersonName(t.desc) || '—'}</td>
+                          <td className="pb-method">{t.method || '—'}</td>
+                          <td className="num pb-spent">{t.amount < 0 ? fmtMoney(-t.amount) : ''}</td>
+                          <td className="num pb-income">{t.amount > 0 ? fmtMoney(t.amount) : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan="5" className="pb-total">
+                          Total
+                        </td>
+                        <td className="num pb-spent">{fmtMoney(spent)}</td>
+                        <td className="num pb-income">{fmtMoney(income)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               )}
               {peopleMonth.length > 0 && (
                 <div className="stmt-group" style={{ marginTop: 18 }}>

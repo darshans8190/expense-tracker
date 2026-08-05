@@ -503,11 +503,26 @@ h1::before {
   text-align: center;
 }
 
+.passbook-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
 .passbook {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 8px;
+  margin-top: 0;
   font-size: 13px;
+  min-width: 640px;
+}
+
+.passbook th:first-child {
+  border-radius: 14px 0 0 0;
+}
+
+.passbook th:last-child {
+  border-radius: 0 14px 0 0;
 }
 
 .passbook th {
@@ -558,6 +573,24 @@ h1::before {
 
 .passbook .pb-desc {
   font-weight: 600;
+  min-width: 140px;
+}
+
+.passbook .pb-cat {
+  white-space: nowrap;
+}
+
+.passbook .pb-person {
+  color: var(--primary);
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.passbook .pb-method {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .passbook .pb-spent {
