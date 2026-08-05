@@ -347,13 +347,9 @@ function App() {
       const pSent = peopleMonth.reduce((s, g) => s + g.sent, 0)
       const pRecv = peopleMonth.reduce((s, g) => s + g.received, 0)
       lines.push(`People - sent ${fmtMoney(pSent)} | received ${fmtMoney(pRecv)}`)
+      lines.push('  Name, Sent, Received')
       for (const g of peopleMonth) {
-        lines.push(
-          `  ${g.name}: sent ${fmtMoney(g.sent)}${g.received > 0 ? ` | received ${fmtMoney(g.received)}` : ''} (${g.txns.length} txns)`,
-        )
-        for (const t of g.txns) {
-          lines.push(`    ${t.date} ${t.desc || t.category} ${fmtMoney(t.amount)}`)
-        }
+        lines.push(`  ${g.name}, ${fmtMoney(g.sent)}, ${fmtMoney(g.received)}`)
       }
     }
     navigator.clipboard
@@ -794,34 +790,24 @@ function App() {
                       {fmtMoney(peopleMonth.reduce((s, g) => s + g.received, 0))} received
                     </span>
                   </div>
-                  {peopleMonth.map((g) => (
-                    <div className="stmt-people" key={g.name}>
-                      <div className="stmt-head">
-                        <span className="person-name">{g.name}</span>
-                        <span className="stmt-total">
-                          {g.sent > 0 && (
-                            <span className="spent">
-                              ↑ {fmtMoney(g.sent)} sent
-                            </span>
-                          )}
-                          {g.received > 0 && (
-                            <span className="income">
-                              {' '}· ↓ {fmtMoney(g.received)} received
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <ul className="stmt-txns">
-                        {g.txns.map((t) => (
-                          <li key={t.id}>
-                            <span className="txn-date">{t.date}</span>
-                            <span className="pv-desc">{t.desc || t.category}{t.method ? <em className="txn-method"> · {t.method}</em> : null}</span>
-                            <span className={`pv-amt ${t.amount < 0 ? 'spent' : 'income'}`}>{fmtMoney(t.amount)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                  <table className="people-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th className="num">Sent</th>
+                        <th className="num">Received</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {peopleMonth.map((g) => (
+                        <tr key={g.name}>
+                          <td className="pt-name">{g.name}</td>
+                          <td className="num sent">{fmtMoney(g.sent)}</td>
+                          <td className="num income">{fmtMoney(g.received)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </>
