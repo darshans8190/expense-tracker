@@ -221,6 +221,12 @@ h1 {
   font-family: inherit;
   background: #fff;
   color: var(--text);
+  min-width: 0;
+}
+
+.row select {
+  flex: 1;
+  min-width: 110px;
 }
 
 .cat-select:focus {
@@ -249,6 +255,25 @@ h1 {
 .people-name {
   flex: 1;
   font-weight: 500;
+}
+
+.people-dir {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.txn-method {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
 }
 
 input[type='number'],

@@ -8,6 +8,9 @@ export const DEFAULT_CATEGORIES = [
   'Shopping',
   'Bills',
   'Rent',
+  'Education',
+  'Gifts',
+  'Fees',
   'Entertainment',
   'Health',
   'Other',
@@ -21,6 +24,9 @@ export const CATEGORY_COLORS = {
   Shopping: '#a855f7',
   Bills: '#0ea5e9',
   Rent: '#6366f1',
+  Education: '#8b5cf6',
+  Gifts: '#f59e0b',
+  Fees: '#84cc16',
   Entertainment: '#ec4899',
   Health: '#14b8a6',
   Other: '#64748b',
@@ -36,6 +42,9 @@ const CATEGORY_KEYWORDS = [
   ['Entertainment', ['bookmyshow', 'book my show', 'prime video', 'amazon prime', 'play station', 'playstation', 'jiosaavn', 'sonyliv', 'sony liv', 'jiocinema', 'jio cinema', 'netflix', 'hotstar', 'spotify', 'gaana', 'wynk', 'disney', 'zee5', 'multiplex', 'cinema', 'movies', 'movie', 'pvr', 'inox', 'steam', 'youtube', 'app store', 'play store', 'subscription', 'ott', 'games', 'game', 'apple']],
   ['Shopping', ['vijay sales', 'reliance digital', 'max fashion', 'boat lifestyle', 'tatacliq', 'tata cliq', 'flipkart', 'myntra', 'meesho', 'ajio', 'nykaa', 'firstcry', 'lenskart', 'decathlon', 'pantaloons', 'westside', 'zudio', 'amazon', 'shopping', 'footwear', 'clothes', 'mall', 'nike', 'adidas', 'puma', 'ikea', 'croma', 'fabindia', 'lifestyle', 'shop']],
   ['Health', ['pharmeasy', 'netmeds', 'cultfit', 'cult fit', 'healthifyme', 'healthify me', 'practo', 'apollo', 'medplus', 'hospital', 'pharmacy', 'medical', 'medicine', 'diagnostic', 'doctor', 'dental', 'clinic', 'ayurveda', 'physio', 'gym', 'yoga', '1mg']],
+  ['Education', ['coursera', 'udemy', 'udacity', 'unacademy', 'byjus', 'byju', 'vedantu', 'college', 'school', 'tuition', 'education', 'course', 'books', 'book store', 'library']],
+  ['Gifts', ['gift', 'donation', 'donate', 'charity']],
+  ['Fees', ['challan', 'fine', 'penalty', 'emi', 'loan', 'insurance premium', 'registration fee', 'fee', 'fees', 'tax']],
 ]
 
 const FLAT_RULES = CATEGORY_KEYWORDS.flatMap(([cat, kws]) =>
@@ -60,11 +69,16 @@ function ruleMatches(rule, lower) {
   return false
 }
 
-export function categorize(desc, people = []) {
+export function categorize(desc, people = [], amount = -1) {
   const lower = String(desc || '').toLowerCase()
   if (!lower) return 'Other'
+  const isExpense = amount < 0
   const personRules = people
-    .filter((p) => p && p.name)
+    .filter((p) => {
+      if (!p || !p.name) return false
+      const dir = p.direction || 'both'
+      return isExpense ? dir !== 'received' : dir !== 'sent'
+    })
     .map((p) => {
       const variants = []
       const name = p.name.toLowerCase()
@@ -101,11 +115,15 @@ export function loadState() {
     for (const d of DEFAULT_CATEGORIES) {
       if (!categories.includes(d)) categories.push(d)
     }
+    const txns = (Array.isArray(data.txns) ? data.txns : []).filter((t) => t && typeof t === 'object')
+    const people = (Array.isArray(data.people) ? data.people : [])
+      .filter((p) => p && typeof p === 'object')
+      .map((p) => ({ name: String(p.name || ''), category: p.category || 'Other', direction: p.direction || 'both' }))
     return {
-      txns: Array.isArray(data.txns) ? data.txns : [],
+      txns,
       balances: data.balances && typeof data.balances === 'object' ? data.balances : {},
       categories,
-      people: Array.isArray(data.people) ? data.people : [],
+      people,
     }
   } catch {
     return emptyState()
@@ -199,13 +217,14 @@ export function parseBankCSV(text, people = []) {
     if (header.some((h) => /date|amount|desc/.test(h))) start = 1
   }
   for (let i = start; i < rows.length; i++) {
-    const [dateRaw, descRaw, amountRaw, catRaw] = rows[i]
+    const [dateRaw, descRaw, amountRaw, catRaw, methodRaw] = rows[i]
     const date = (dateRaw || '').trim()
     if (!date || !amountRaw) continue
     const num = parseFloat(String(amountRaw).replace(/[₹,\s]/g, ''))
     if (Number.isNaN(num)) continue
     const desc = (descRaw || '').trim()
-    const cat = (catRaw || '').trim() || categorize(desc, people)
+    const cat = (catRaw || '').trim() || categorize(desc, people, num)
+    const method = (methodRaw || '').trim()
     let iso = date
     if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(date)) {
       const [a, b, c] = date.split('/').map(Number)
@@ -215,16 +234,16 @@ export function parseBankCSV(text, people = []) {
       iso = `${c}-${String(a).padStart(2, '0')}-${String(b).padStart(2, '0')}`
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue
-    parsed.push({ date: iso, desc, amount: num, category: cat })
+    parsed.push({ date: iso, desc, amount: num, category: cat, method: method || undefined })
   }
   return parsed
 }
 
 export function exportCSV(state) {
-  const header = 'Date,Description,Amount,Category'
+  const header = 'Date,Description,Amount,Category,Method'
   const lines = state.txns.map((t) => {
     const esc = (s) => `"${String(s).replace(/"/g, '""')}"`
-    return `${t.date},${esc(t.desc)},${t.amount},${esc(t.category)}`
+    return `${t.date},${esc(t.desc)},${t.amount},${esc(t.category)},${esc(t.method || '')}`
   })
   return [header, ...lines].join('\n')
 }
@@ -313,7 +332,7 @@ export function parseBankPDF(text, people = []) {
       if (amount === 0) continue
       let desc = cleanDesc(line)
       if (!desc) desc = 'Bank transaction'
-      out.push({ date: dateInfo.iso, desc, amount, category: categorize(desc, people) })
+      out.push({ date: dateInfo.iso, desc, amount, category: categorize(desc, people, amount) })
       continue
     }
 
@@ -330,7 +349,7 @@ export function parseBankPDF(text, people = []) {
     const amountPart = cleanDesc(line.replace(/[-+]?\s*[\d,]+\.\d{1,2}/g, ' '))
     const descParts = [...pendingDesc, amountPart].filter(Boolean)
     const desc = (descParts.join(' ') || 'Bank transaction').slice(0, 80)
-    out.push({ date: pendingDate, desc, amount, category: categorize(desc, people) })
+    out.push({ date: pendingDate, desc, amount, category: categorize(desc, people, amount) })
     pendingDate = null
     pendingDesc = []
   }

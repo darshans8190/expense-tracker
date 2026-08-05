@@ -128,6 +128,7 @@ function App() {
     category: 'Food',
     desc: '',
     date: todayStr(),
+    method: 'UPI',
     editingId: null,
   })
   const [newCategory, setNewCategory] = useState('')
@@ -136,6 +137,7 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [personName, setPersonName] = useState('')
   const [personCat, setPersonCat] = useState('Food')
+  const [personDir, setPersonDir] = useState('sent')
   const [copiedMsg, setCopiedMsg] = useState('')
   const [rawText, setRawText] = useState('')
   const [pastedText, setPastedText] = useState('')
@@ -198,6 +200,7 @@ function App() {
       desc: form.desc.trim() || (form.editingId ? '(edited)' : ''),
       amount: signed,
       category: form.category,
+      method: form.method,
     }
     setState((s) => {
       const exists = s.txns.some((t) => t.id === txn.id)
@@ -206,7 +209,7 @@ function App() {
         txns: exists ? s.txns.map((t) => (t.id === txn.id ? txn : t)) : [txn, ...s.txns],
       }
     })
-    setForm({ amount: '', type: 'expense', category: 'Food', desc: '', date: todayStr(), editingId: null })
+    setForm({ amount: '', type: 'expense', category: 'Food', desc: '', date: todayStr(), method: 'UPI', editingId: null })
   }
 
   function deleteTxn(id) {
@@ -220,6 +223,7 @@ function App() {
       category: t.category,
       desc: t.desc,
       date: t.date,
+      method: t.method || 'UPI',
       editingId: t.id,
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -255,7 +259,7 @@ function App() {
     setState((s) => {
       const exists = s.people.some((p) => p.name.toLowerCase() === name.toLowerCase())
       if (exists) return s
-      return { ...s, people: [...s.people, { name, category: personCat }] }
+      return { ...s, people: [...s.people, { name, category: personCat, direction: personDir }] }
     })
     setPersonName('')
   }
@@ -268,7 +272,7 @@ function App() {
     setState((s) => ({
       ...s,
       txns: s.txns.map((t) =>
-        t.category === 'Other' ? { ...t, category: categorize(t.desc, s.people) } : t,
+        t.category === 'Other' ? { ...t, category: categorize(t.desc, s.people, t.amount) } : t,
       ),
     }))
     setImportMsg('Re-categorized all "Other" transactions from their descriptions.')
@@ -385,16 +389,24 @@ function App() {
     const m = String(p.desc).match(/UPI\/[^/@\s]+/i)
     const name = (m ? m[0].replace(/^UPI\//i, '') : p.desc).slice(0, 30).trim()
     if (!name) return
+    const direction = p.amount < 0 ? 'sent' : 'received'
     setState((s) => {
       const exists = s.people.some((x) => x.name.toLowerCase() === name.toLowerCase())
-      return exists ? s : { ...s, people: [...s.people, { name, category: 'Other' }] }
+      if (exists) return s
+      return { ...s, people: [...s.people, { name, category: 'Other', direction }] }
     })
     setPreview((prev) =>
       prev.map((x) =>
-        x === p ? { ...x, category: categorize(x.desc, [...state.people, { name, category: 'Other' }]) } : x,
+        x === p
+          ? { ...x, category: categorize(x.desc, [...state.people, { name, category: 'Other', direction }], x.amount) }
+          : x,
       ),
     )
-    setCopiedMsg(`Added "${name}" to People I Pay — matching transfers will be tagged.`)
+    setCopiedMsg(
+      direction === 'sent'
+        ? `Added "${name}" as a person you send money to — matching transfers will be tagged.`
+        : `Added "${name}" as a person you receive from — matching credits will be tagged.`,
+    )
     setTimeout(() => setCopiedMsg(''), 5000)
   }
 
@@ -407,7 +419,7 @@ function App() {
       }
       return {
         txns: [
-          ...preview.map((p) => ({ id: uid(), date: p.date, desc: p.desc, amount: p.amount, category: p.category })),
+          ...preview.map((p) => ({ id: uid(), date: p.date, desc: p.desc, amount: p.amount, category: p.category, method: p.method })),
           ...s.txns,
         ],
         balances: s.balances,
@@ -537,21 +549,34 @@ function App() {
                 value={form.date}
                 onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
               />
+              <select
+                value={form.method}
+                title="Payment method"
+                onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}
+              >
+                {['UPI', 'Cash', 'Card', 'Transfer', 'Other'].map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
             </div>
-            <input
-              type="text"
-              placeholder="Description (optional) e.g. Swiggy order"
-              value={form.desc}
-              onChange={(e) => {
-                const v = e.target.value
-                setForm((f) => {
-                  const suggested = categorize(v, state.people)
-                  return f.category === 'Food' && suggested !== 'Other'
-                    ? { ...f, desc: v, category: suggested }
-                    : { ...f, desc: v }
-                })
-              }}
-            />
+              <input
+                type="text"
+                placeholder="Description (optional) e.g. Swiggy order"
+                value={form.desc}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setForm((f) => {
+                    const amountNum = Math.abs(parseFloat(f.amount)) || 1
+                    const signed = f.type === 'expense' ? -amountNum : amountNum
+                    const suggested = categorize(v, state.people, signed)
+                    return f.category === 'Food' && suggested !== 'Other'
+                      ? { ...f, desc: v, category: suggested }
+                      : { ...f, desc: v }
+                  })
+                }}
+              />
             <div className="chips">
               {state.categories.map((c) => (
                 <button
@@ -664,7 +689,7 @@ function App() {
                     {g.txns.map((t) => (
                       <li key={t.id}>
                         <span className="txn-date">{t.date}</span>
-                        <span className="pv-desc">{t.desc || t.category}</span>
+                        <span className="pv-desc">{t.desc || t.category}{t.method ? <em className="txn-method"> · {t.method}</em> : null}</span>
                         <span className="pv-amt spent">{fmtMoney(t.amount)}</span>
                       </li>
                     ))}
@@ -710,6 +735,7 @@ function App() {
                       <span className="txn-cat" style={{ color: colorFor(t.category), borderColor: colorFor(t.category) }}>
                         {t.category}
                       </span>
+                      {t.method && <span className="txn-method">{t.method}</span>}
                     </span>
                   </button>
                   <span className={`txn-amt ${t.amount < 0 ? 'spent' : 'income'}`}>
@@ -725,9 +751,10 @@ function App() {
         </section>
 
         <section className="panel no-print">
-          <h2>People I Pay</h2>
+          <h2>People</h2>
           <p className="hint" style={{ marginTop: 0 }}>
-            Add names of people you send money to. Transfers like "UPI/RAHUL KUMAR@YBL" will be matched by name.
+            Track who you send money to and who pays you. Transfers like "UPI/RAHUL KUMAR@YBL" are matched by
+            name — outgoing transfers are tagged from "sent to" people, credits from "received from" people.
           </p>
           <div className="row">
             <input
@@ -747,6 +774,15 @@ function App() {
                 </option>
               ))}
             </select>
+            <select
+              className="cat-select"
+              value={personDir}
+              onChange={(e) => setPersonDir(e.target.value)}
+            >
+              <option value="sent">I send to them</option>
+              <option value="received">They pay me</option>
+              <option value="both">Both ways</option>
+            </select>
             <button type="button" className="ghost bordered" onClick={addPerson}>
               + Add
             </button>
@@ -756,6 +792,9 @@ function App() {
               {state.people.map((p) => (
                 <li key={p.name}>
                   <span className="people-name">{p.name}</span>
+                  <span className="people-dir">
+                    {p.direction === 'received' ? '← they pay me' : p.direction === 'sent' ? '→ I send to them' : '⇄ both ways'}
+                  </span>
                   <span
                     className="txn-cat"
                     style={{ color: colorFor(p.category), borderColor: colorFor(p.category) }}
@@ -851,8 +890,13 @@ function App() {
                     {p.category}
                   </span>
                   <span className={`pv-amt ${p.amount < 0 ? 'spent' : 'income'}`}>{fmtMoney(p.amount)}</span>
-                  {p.amount < 0 && p.category === 'Other' && (
-                    <button type="button" className="ghost pv-person" onClick={() => addPersonFromPreview(p)} title="Add this name to People I Pay">
+                  {p.category === 'Other' && (
+                    <button
+                      type="button"
+                      className="ghost pv-person"
+                      onClick={() => addPersonFromPreview(p)}
+                      title={p.amount < 0 ? 'Add as a person you send money to' : 'Add as a person who pays you'}
+                    >
                       + person
                     </button>
                   )}
