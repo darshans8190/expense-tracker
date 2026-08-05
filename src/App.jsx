@@ -127,6 +127,29 @@ function fmtShort(v) {
   return `₹${v}`
 }
 
+function resizePhoto(file, maxDim = 900, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const w = Math.round(img.width * scale)
+      const h = Math.round(img.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/jpeg', quality))
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Could not read image'))
+    }
+    img.src = url
+  })
+}
+
 function isFailMsg(msg) {
   return /Could not|Failed|password|encrypt/i.test(msg)
 }
@@ -181,11 +204,13 @@ function App() {
     date: todayStr(),
     method: 'UPI',
     editingId: null,
+    photo: null,
   })
   const [newCategory, setNewCategory] = useState('')
   const [importMsg, setImportMsg] = useState('')
   const [preview, setPreview] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [photoView, setPhotoView] = useState(null)
   const [personName, setPersonName] = useState('')
   const [personCat, setPersonCat] = useState('Food')
   const [personDir, setPersonDir] = useState('sent')
@@ -193,9 +218,16 @@ function App() {
   const [rawText, setRawText] = useState('')
   const [pastedText, setPastedText] = useState('')
   const fileRef = useRef(null)
+  const photoRef = useRef(null)
 
   useEffect(() => {
-    saveState(state)
+    try {
+      saveState(state)
+    } catch {
+      setImportMsg(
+        'Could not save — your browser storage is full. Try deleting photos from old transactions or removing old data.',
+      )
+    }
   }, [state])
 
   const monthTxns = useMemo(
@@ -285,6 +317,7 @@ function App() {
       amount: signed,
       category: form.category,
       method: form.method,
+      photo: form.photo || null,
     }
     setState((s) => {
       const exists = s.txns.some((t) => t.id === txn.id)
@@ -293,7 +326,16 @@ function App() {
         txns: exists ? s.txns.map((t) => (t.id === txn.id ? txn : t)) : [txn, ...s.txns],
       }
     })
-    setForm({ amount: '', type: 'expense', category: 'Food', desc: '', date: todayStr(), method: 'UPI', editingId: null })
+    setForm({ amount: '', type: 'expense', category: 'Food', desc: '', date: todayStr(), method: 'UPI', editingId: null, photo: null })
+  }
+
+  function pickPhoto(e) {
+    const file = e.target.files && e.target.files[0]
+    if (!file) return
+    resizePhoto(file)
+      .then((dataUrl) => setForm((f) => ({ ...f, photo: dataUrl })))
+      .catch(() => setImportMsg('Could not read that photo. Try a different image.'))
+    if (photoRef.current) photoRef.current.value = ''
   }
 
   function deleteTxn(id) {
@@ -309,6 +351,7 @@ function App() {
       date: t.date,
       method: t.method || 'UPI',
       editingId: t.id,
+      photo: t.photo || null,
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -882,6 +925,16 @@ function App() {
                   <span className={`txn-amt ${t.amount < 0 ? 'spent' : 'income'}`}>
                     {fmtMoney(t.amount)}
                   </span>
+                  {t.photo && (
+                    <button
+                      className="photo-thumb"
+                      onClick={() => setPhotoView(t.photo)}
+                      title="View photo"
+                      aria-label="View photo"
+                    >
+                      <img src={t.photo} alt="" />
+                    </button>
+                  )}
                   <button className="ghost del" onClick={() => deleteTxn(t.id)} aria-label="Delete">
                     ✕
                   </button>
@@ -1047,6 +1100,24 @@ function App() {
                 })
               }}
             />
+            <div className="photo-row">
+              <label className="btn-label">
+                {form.photo ? 'Replace photo' : '+ Add photo (bill / receipt)'}
+                <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={pickPhoto} />
+              </label>
+              {form.photo && (
+                <>
+                  <img src={form.photo} alt="Attachment preview" className="photo-preview" onClick={() => setPhotoView(form.photo)} />
+                  <button
+                    type="button"
+                    className="ghost del"
+                    onClick={() => setForm((f) => ({ ...f, photo: null }))}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </div>
             <div className="chips">
               {state.categories.map((c) => (
                 <button
@@ -1149,7 +1220,7 @@ function App() {
       )}
 
       {preview && (
-        <div className="modal-backdrop no-print" onClick={() => { setPreview(null); setDetected([]) }}>
+        <div className="modal-backdrop no-print" onClick={() => setPreview(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Review imported transactions</h2>
             <p className="hint">
@@ -1188,6 +1259,19 @@ function App() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {photoView && (
+        <div className="modal-backdrop no-print" onClick={() => setPhotoView(null)}>
+          <div className="modal photo-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-actions" style={{ justifyContent: 'flex-end' }}>
+              <button className="ghost" onClick={() => setPhotoView(null)}>
+                Close
+              </button>
+            </div>
+            <img src={photoView} alt="Transaction photo" className="photo-full" />
           </div>
         </div>
       )}
