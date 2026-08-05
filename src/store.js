@@ -192,7 +192,7 @@ export function dedupeTxns(txns) {
 }
 
 export function emptyState() {
-  return { txns: [], balances: {}, categories: DEFAULT_CATEGORIES, people: [] }
+  return { txns: [], balances: {}, categories: DEFAULT_CATEGORIES, people: [], budgets: {} }
 }
 
 export function loadState() {
@@ -245,6 +245,7 @@ export function loadState() {
       balances: data.balances && typeof data.balances === 'object' ? data.balances : {},
       categories: cleanedCategories,
       people,
+      budgets: data.budgets && typeof data.budgets === 'object' ? data.budgets : {},
     }
   } catch {
     return emptyState()

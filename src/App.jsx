@@ -117,6 +117,27 @@ async function ocrImage(file, onProgress) {
   return ocr.text
 }
 
+const CATEGORY_EMOJI = {
+  Food: '🍔',
+  Groceries: '🛒',
+  Travel: '✈️',
+  Petrol: '⛽',
+  Shopping: '🛍️',
+  Bills: '💡',
+  Rent: '🏠',
+  Education: '📚',
+  Gifts: '🎁',
+  Fees: '💳',
+  Entertainment: '🎬',
+  Health: '💊',
+  Income: '💰',
+  Other: '📦',
+}
+
+function emojiFor(category) {
+  return CATEGORY_EMOJI[category] || '🏷️'
+}
+
 function colorFor(category) {
   if (CATEGORY_COLORS[category]) return CATEGORY_COLORS[category]
   let h = 0
@@ -151,6 +172,30 @@ function resizePhoto(file, maxDim = 900, quality = 0.72) {
     }
     img.src = url
   })
+}
+
+function Donut({ slices, size = 148, centerLabel }) {
+  const total = slices.reduce((s, x) => s + x.value, 0)
+  if (total <= 0) return null
+  let acc = 0
+  const stops = slices.map((s) => {
+    const from = (acc / total) * 360
+    acc += s.value
+    const to = (acc / total) * 360
+    return `${s.color} ${from}% ${to}%`
+  })
+  return (
+    <div className="donut-wrap">
+      <div
+        className="donut"
+        style={{ width: size, height: size, background: `conic-gradient(${stops.join(', ')})` }}
+      />
+      <div className="donut-center">
+        <span className="donut-label">{centerLabel}</span>
+        <span className="donut-value">{fmtMoney(total)}</span>
+      </div>
+    </div>
+  )
 }
 
 function isFailMsg(msg) {
@@ -224,6 +269,23 @@ function App() {
   const fileRef = useRef(null)
   const photoRef = useRef(null)
 
+  const [dark, setDark] = useState(() => {
+    try {
+      return localStorage.getItem('expense-tracker-theme') === 'dark'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    try {
+      localStorage.setItem('expense-tracker-theme', dark ? 'dark' : 'light')
+    } catch {
+      /* ignore */
+    }
+  }, [dark])
+
   useEffect(() => {
     try {
       saveState(state)
@@ -267,6 +329,17 @@ function App() {
     return [...map.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
   }, [monthTxns])
   const maxDay = dailySpend.reduce((m, [, v]) => Math.max(m, v), 0)
+
+  const donutSlices = useMemo(() => {
+    if (catTotals.length === 0) return []
+    const top = catTotals.slice(0, 6)
+    const rest = catTotals.slice(6)
+    const slices = top.map(([cat, total]) => ({ name: cat, value: total, color: colorFor(cat) }))
+    if (rest.length > 0) {
+      slices.push({ name: 'Other', value: rest.reduce((s, [, v]) => s + v, 0), color: colorFor('Other') })
+    }
+    return slices
+  }, [catTotals])
 
   const statementTxns = useMemo(
     () => [...monthTxns].sort((a, b) => (a.date > b.date ? 1 : -1)),
@@ -375,6 +448,13 @@ function App() {
       balances: { ...s.balances, [month]: { ...s.balances[month], actual: value } },
     }))
   }
+
+  function setBudget(value) {
+    setState((s) => ({ ...s, budgets: { ...s.budgets, [month]: value } }))
+  }
+  const monthBudget = state.budgets?.[month] ?? 0
+  const budgetPct = monthBudget > 0 ? Math.min(100, (spent / monthBudget) * 100) : 0
+  const overBudget = monthBudget > 0 && spent > monthBudget
 
   function addCustomCategory() {
     const name = newCategory.trim()
@@ -639,6 +719,13 @@ function App() {
         <div className="header-inner">
           <h1>My Expenses</h1>
           <div className="month-nav">
+            <button
+              className="theme-btn"
+              onClick={() => setDark((d) => !d)}
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {dark ? '☀️' : '🌙'}
+            </button>
             <button className="ghost" onClick={() => setMonth((m) => shiftMonth(m, -1))} aria-label="Previous month">
               ‹
             </button>
@@ -753,6 +840,30 @@ function App() {
               <span className={`stat-num ${income - spent < 0 ? 'spent' : 'income'}`}>{fmtMoney(income - spent)}</span>
               <span className="stat-hint">{monthTxns.length} transactions</span>
             </div>
+            <div className={`stat-card stat-budget ${overBudget ? 'stat-over' : ''}`}>
+              <span className="stat-label">Budget</span>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                className="budget-input"
+                value={monthBudget || ''}
+                placeholder="Set monthly budget"
+                onChange={(e) => setBudget(Math.max(0, parseFloat(e.target.value) || 0))}
+              />
+              {monthBudget > 0 && (
+                <>
+                  <div className="budget-track">
+                    <div className="budget-fill" style={{ width: `${budgetPct}%` }} />
+                  </div>
+                  <span className={`stat-hint ${overBudget ? 'spent' : ''}`}>
+                    {overBudget
+                      ? `Over by ${fmtMoney(spent - monthBudget)} ⚠️`
+                      : `${Math.round(budgetPct)}% used · ${fmtMoney(monthBudget - spent)} left`}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
           {dailySpend.length > 0 && (
             <div className="trend-wrap">
@@ -771,14 +882,31 @@ function App() {
           {catTotals.length > 0 ? (
             <>
               <span className="trend-title">Where it went</span>
-              <div className="bars">
+              <div className="donut-row">
+                <Donut
+                  centerLabel="Spent"
+                  slices={donutSlices}
+                />
+                <div className="donut-legend">
+                  {donutSlices.map((s) => (
+                    <div className="legend-row" key={s.name}>
+                      <span className="dot" style={{ background: s.color }} />
+                      <span className="legend-name">{emojiFor(s.name)} {s.name}</span>
+                      <span className="legend-val">
+                        {fmtMoney(s.value)} <span className="bar-pct">{Math.round((s.value / spent) * 100)}%</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bars" style={{ marginTop: 12 }}>
                 {catTotals.map(([cat, total]) => (
                   <div className="bar-row" key={cat}>
                     <div className="bar-top">
-                      <span className="bar-cat">
-                        <span className="dot" style={{ background: colorFor(cat) }} />
-                        {cat}
-                      </span>
+                    <span className="bar-cat">
+                      <span className="dot" style={{ background: colorFor(cat) }} />
+                      {emojiFor(cat)} {cat}
+                    </span>
                       <span className="bar-amt">
                         {fmtMoney(total)}
                         <span className="bar-pct">{Math.round((total / spent) * 100)}%</span>
@@ -855,7 +983,7 @@ function App() {
                               className="txn-cat"
                               style={{ color: colorFor(t.category), borderColor: colorFor(t.category) }}
                             >
-                              {t.category}
+                              {emojiFor(t.category)} {t.category}
                             </span>
                           </td>
                           <td className="pb-person">{extractPersonName(t.desc) || '—'}</td>
@@ -927,7 +1055,7 @@ function App() {
                       <span className="txn-desc">{t.desc || t.category}</span>
                       {t.note && <span className="txn-note">📝 {t.note}</span>}
                       <span className="txn-cat" style={{ color: colorFor(t.category), borderColor: colorFor(t.category) }}>
-                        {t.category}
+                        {emojiFor(t.category)} {t.category}
                       </span>
                       {t.method && <span className="txn-method">{t.method}</span>}
                     </span>
@@ -1143,7 +1271,7 @@ function App() {
                   style={form.category === c ? { background: colorFor(c), borderColor: colorFor(c) } : {}}
                   onClick={() => setForm((f) => ({ ...f, category: c }))}
                 >
-                  {c}
+                  {emojiFor(c)} {c}
                 </button>
               ))}
             </div>
@@ -1258,7 +1386,7 @@ function App() {
                     className="pv-cat"
                     style={{ color: colorFor(p.category), borderColor: colorFor(p.category) }}
                   >
-                    {p.category}
+                    {emojiFor(p.category)} {p.category}
                   </span>
                   <span className={`pv-amt ${p.amount < 0 ? 'spent' : 'income'}`}>{fmtMoney(p.amount)}</span>
                 </li>

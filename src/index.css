@@ -20,6 +20,24 @@
   --shadow-sm: 0 1px 2px rgba(20, 22, 31, 0.05);
 }
 
+:root[data-theme='dark'] {
+  --bg: #0d1117;
+  --panel: #161c26;
+  --text: #e6e9f0;
+  --muted: #8b93a7;
+  --border: #26303f;
+  --primary: #8f8ff0;
+  --primary-strong: #7a7ae2;
+  --primary-soft: #242a45;
+  --red: #f0656b;
+  --red-soft: #38212a;
+  --green: #43c185;
+  --green-soft: #1d352c;
+  --amber: #f5a524;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -20px rgba(0, 0, 0, 0.8);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
 body {
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -31,6 +49,22 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   font-feature-settings: 'cv11', 'ss01';
+}
+
+:root[data-theme='dark'] body {
+  background:
+    radial-gradient(1200px 400px at 80% -10%, rgba(143, 143, 240, 0.12), transparent 60%),
+    radial-gradient(900px 380px at -10% 0%, rgba(245, 165, 36, 0.06), transparent 55%),
+    linear-gradient(180deg, #0b0f15 0%, var(--bg) 100%);
+}
+
+:root[data-theme='dark'] .header {
+  background: rgba(13, 17, 23, 0.82);
+  border-bottom: 1px solid var(--border);
+}
+
+:root[data-theme='dark'] .stat-card {
+  border: 1px solid var(--border);
 }
 
 .app {
@@ -107,7 +141,7 @@ h1::before {
 .ghost.bordered {
   border: 1px solid var(--border);
   padding: 8px 14px;
-  background: #fff;
+  background: var(--panel);
   box-shadow: var(--shadow-sm);
 }
 
@@ -252,15 +286,15 @@ h1::before {
 }
 
 .stat-spent {
-  background: linear-gradient(180deg, #fff 0%, var(--red-soft) 140%);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--red-soft) 140%);
 }
 
 .stat-income {
-  background: linear-gradient(180deg, #fff 0%, var(--green-soft) 140%);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--green-soft) 140%);
 }
 
 .stat-net {
-  background: linear-gradient(180deg, #fff 0%, var(--primary-soft) 140%);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--primary-soft) 140%);
 }
 
 .stat-label {
@@ -363,7 +397,7 @@ h1::before {
   padding: 11px;
   border-radius: 12px;
   border: 1.5px solid var(--border);
-  background: #fff;
+  background: var(--panel);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -400,7 +434,7 @@ h1::before {
   font-size: 14px;
   outline: none;
   font-family: inherit;
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
   min-width: 0;
 }
@@ -454,7 +488,7 @@ h1::before {
   font-size: 15px;
   font-weight: 700;
   font-family: inherit;
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
   outline: none;
   cursor: pointer;
@@ -469,7 +503,7 @@ h1::before {
   gap: 10px;
   margin: 0 0 14px;
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
   font-size: 13px;
@@ -534,7 +568,7 @@ h1::before {
   font-weight: 800;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
-  background: #fbfbfe;
+  background: var(--panel);
 }
 
 .passbook th.num {
@@ -549,7 +583,7 @@ h1::before {
 }
 
 .passbook tbody tr:hover td {
-  background: #f8f8fd;
+  background: var(--primary-soft);
 }
 
 .passbook tfoot td {
@@ -737,7 +771,7 @@ h1::before {
 }
 
 .busy-box {
-  background: #fff;
+  background: var(--panel);
   border-radius: 18px;
   padding: 30px 36px;
   max-width: 380px;
@@ -796,11 +830,16 @@ h1::before {
 .import-msg.fail {
   margin: 10px 0;
   padding: 10px 12px;
-  background: #fef2f2;
+  background: var(--red-soft);
   border: 1px solid #fca5a5;
   border-radius: 10px;
   color: #b91c1c;
   font-weight: 600;
+}
+
+:root[data-theme='dark'] .import-msg.fail {
+  border-color: #7f3b44;
+  color: #ff9b9b;
 }
 
 .people-summary {
@@ -860,7 +899,7 @@ select {
   font-size: 14px;
   outline: none;
   font-family: inherit;
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -881,7 +920,7 @@ select:focus {
   padding: 7px 12px;
   border-radius: 999px;
   border: 1.5px solid var(--border);
-  background: #fff;
+  background: var(--panel);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1101,7 +1140,7 @@ select:focus {
 }
 
 .modal {
-  background: #fff;
+  background: var(--panel);
   border-radius: 18px;
   padding: 20px;
   width: 100%;
@@ -1145,7 +1184,7 @@ select:focus {
 .preview-head {
   position: sticky;
   top: 0;
-  background: #fff;
+  background: var(--panel);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -1221,7 +1260,7 @@ select:focus {
   font-size: 13px;
   font-family: inherit;
   outline: none;
-  background: #fff;
+  background: var(--panel);
   resize: vertical;
   box-sizing: border-box;
 }
@@ -1255,7 +1294,7 @@ select:focus {
   height: 34px;
   cursor: pointer;
   overflow: hidden;
-  background: #fff;
+  background: var(--panel);
   flex-shrink: 0;
   transition: transform 0.12s ease;
 }
@@ -1381,5 +1420,188 @@ select:focus {
 @media (min-width: 480px) {
   .cards {
     grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--panel);
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease;
+}
+
+.theme-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--primary);
+}
+
+.donut-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin: 6px 0 2px;
+}
+
+.donut-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.donut {
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(farthest-side, transparent 58%, #000 60%);
+  mask: radial-gradient(farthest-side, transparent 58%, #000 60%);
+}
+
+.donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  gap: 2px;
+}
+
+.donut-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.donut-value {
+  font-size: 17px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.donut-legend {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.legend-row .dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+.legend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.legend-val .bar-pct {
+  font-weight: 600;
+}
+
+.budget-input {
+  width: 100%;
+  margin: 2px 0 6px;
+  padding: 4px 2px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1.5px dashed var(--border);
+  font-family: inherit;
+}
+
+.budget-input:focus {
+  border-bottom-color: var(--primary);
+}
+
+.budget-track {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.budget-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--green), #34c77b);
+  transition: width 0.3s ease;
+}
+
+.stat-over .budget-fill {
+  background: linear-gradient(90deg, var(--amber), var(--red));
+}
+
+.stat-over {
+  box-shadow: var(--shadow-sm), 0 0 0 1.5px var(--red);
+}
+
+.stat-budget .stat-hint.spent {
+  color: var(--red);
+  font-weight: 700;
+}
+
+:root[data-theme='dark'] .passbook tbody tr:hover td {
+  background: #1d2431;
+}
+
+:root[data-theme='dark'] .photo-thumb,
+:root[data-theme='dark'] .photo-preview {
+  background: #0b0f15;
+}
+
+:root[data-theme='dark'] .photo-modal {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+:root[data-theme='dark'] input::placeholder {
+  color: #5b6375;
+}
+
+:root[data-theme='dark'] .raw-box pre {
+  background: #0b0f15;
+}
+
+@media (max-width: 640px) {
+  .donut-row {
+    justify-content: center;
+  }
+  .donut-legend {
+    width: 100%;
+    min-width: 0;
   }
 }
