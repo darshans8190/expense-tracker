@@ -80,6 +80,41 @@ async function ocrPdf(file, onProgress) {
   return text
 }
 
+function loadImageCanvas(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0)
+      URL.revokeObjectURL(url)
+      resolve(canvas)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Could not load this image'))
+    }
+    img.src = url
+  })
+}
+
+async function ocrImage(file, onProgress) {
+  const { createWorker } = await import('tesseract.js')
+  const canvas = await loadImageCanvas(file)
+  const worker = await createWorker('eng', 1, {
+    workerPath: `${import.meta.env.BASE_URL}tess/worker.min.js`,
+    corePath: `${import.meta.env.BASE_URL}tess/`,
+    langPath: `${import.meta.env.BASE_URL}tess/`,
+  })
+  if (onProgress) onProgress(1, 1)
+  const { data: ocr } = await worker.recognize(canvas)
+  await worker.terminate()
+  return ocr.text
+}
+
 function colorFor(category) {
   return CATEGORY_COLORS[category] || '#64748b'
 }
@@ -360,8 +395,13 @@ function App() {
   }
 
   function handleImport(file) {
-    if (file.name.toLowerCase().endsWith('.pdf')) {
+    const name = (file.name || '').toLowerCase()
+    if (name.endsWith('.pdf')) {
       handlePdfImport(file)
+      return
+    }
+    if (/\.(png|jpe?g|webp|heic)$/.test(name)) {
+      handleImageImport(file)
       return
     }
     const reader = new FileReader()
@@ -375,6 +415,38 @@ function App() {
       if (fileRef.current) fileRef.current.value = ''
     }
     reader.readAsText(file)
+  }
+
+  async function handleImageImport(file) {
+    setBusy(true)
+    setImportMsg('Reading image with OCR...')
+    setRawText('')
+    try {
+      const text = await ocrImage(file)
+      setRawText(text)
+      const parsed = parseBankPDF(text, state.people)
+      if (parsed.length === 0) {
+        setImportMsg(
+          'Could not read transactions from this image. Click "See what the reader found" below, or paste the statement text into the box below as a fallback.',
+        )
+      } else {
+        setPreview(parsed)
+        setImportMsg('')
+      }
+    } catch (err) {
+      if (err && /unsupported image|decode/i.test(String(err.message))) {
+        setImportMsg(
+          'This image format could not be opened. Try a JPG or PNG screenshot of the statement, or paste the text below.',
+        )
+      } else {
+        setImportMsg(
+          `Failed to read image: ${err && err.message ? err.message : err}. Try a clear screenshot or the PDF, or paste the statement text below.`,
+        )
+      }
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
   }
 
   async function handlePdfImport(file) {
@@ -921,11 +993,11 @@ function App() {
           <h2>Data</h2>
           <div className="row wrap">
             <label className="btn-label">
-              {busy ? 'Reading...' : 'Import bank CSV or PDF'}
+              {busy ? 'Reading...' : 'Import bank CSV, PDF or photo'}
               <input
                 ref={fileRef}
                 type="file"
-                accept=".csv,.pdf,text/csv,application/pdf"
+                accept=".csv,.pdf,text/csv,application/pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
                 className="hidden"
                 onChange={(e) => e.target.files[0] && handleImport(e.target.files[0])}
               />
@@ -937,7 +1009,11 @@ function App() {
               Delete all data
             </button>
           </div>
-          {importMsg && <p className="hint">{importMsg}</p>}
+          {importMsg && (
+            <p className={importMsg.includes('Could not') || importMsg.includes('Failed') ? 'import-msg fail' : 'hint'}>
+              {importMsg}
+            </p>
+          )}
           <p className="hint">
             Descriptions are auto-categorized: Swiggy/Zomato → Food, Indian Oil/Shell → Petrol, Amazon/Flipkart →
             Shopping, Uber/Ola → Travel, Zepto/DMart → Groceries, Jio/Airtel → Bills, and more. Unmatched rows stay
@@ -945,8 +1021,8 @@ function App() {
             browser.
           </p>
           {rawText && (
-            <details className="raw-box">
-              <summary>See what the reader found in your PDF ({rawText.split('\n').filter(Boolean).length} lines)</summary>
+            <details className="raw-box" open={importMsg.includes('Could not')}>
+              <summary>See what the reader found ({rawText.split('\n').filter(Boolean).length} lines)</summary>
               <pre>{rawText.slice(0, 4000)}</pre>
             </details>
           )}
