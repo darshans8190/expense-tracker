@@ -12,9 +12,7 @@ import {
   parseBankCSV,
   parseBankPDF,
   categorize,
-  extractPersonName,
   normalizeName,
-  detectPeople,
   personTotals,
   exportCSV,
   CATEGORY_COLORS,
@@ -139,7 +137,6 @@ function App() {
   const [newCategory, setNewCategory] = useState('')
   const [importMsg, setImportMsg] = useState('')
   const [preview, setPreview] = useState(null)
-  const [detected, setDetected] = useState([])
   const [busy, setBusy] = useState(false)
   const [personName, setPersonName] = useState('')
   const [personCat, setPersonCat] = useState('Food')
@@ -351,7 +348,6 @@ function App() {
         return
       }
       setPreview(parsed)
-      setDetected(detectPeople(parsed))
       if (fileRef.current) fileRef.current.value = ''
     }
     reader.readAsText(file)
@@ -386,7 +382,6 @@ function App() {
         )
       } else {
         setPreview(parsed)
-        setDetected(detectPeople(parsed))
         setImportMsg('')
       }
     } catch (err) {
@@ -418,84 +413,7 @@ function App() {
       return
     }
     setPreview(parsed)
-    setDetected(detectPeople(parsed))
     setImportMsg('')
-  }
-
-  function addPersonFromPreview(p) {
-    const name = (extractPersonName(p.desc) || p.desc).slice(0, 30).trim()
-    if (!name) return
-    const direction = p.amount < 0 ? 'sent' : 'received'
-    setState((s) => {
-      const idx = s.people.findIndex((x) => normalizeName(x.name) === normalizeName(name))
-      if (idx >= 0) {
-        const ex = s.people[idx]
-        const dirs = new Set([ex.direction, direction])
-        if (dirs.size > 1 && ex.direction !== 'both') {
-          const next = [...s.people]
-          next[idx] = { ...ex, direction: 'both' }
-          return { ...s, people: next }
-        }
-        return s
-      }
-      return { ...s, people: [...s.people, { name, category: 'Other', direction }] }
-    })
-    setPreview((prev) =>
-      prev.map((x) =>
-        x === p
-          ? { ...x, category: categorize(x.desc, [...state.people, { name, category: 'Other', direction }], x.amount) }
-          : x,
-      ),
-    )
-    setCopiedMsg(
-      direction === 'sent'
-        ? `Added "${name}" as a person you send money to — matching transfers will be tagged.`
-        : `Added "${name}" as a person you receive from — matching credits will be tagged.`,
-    )
-    setTimeout(() => setCopiedMsg(''), 5000)
-  }
-
-  function addAllPeopleFromPreview() {
-    if (!preview) return
-    const found = []
-    for (const p of preview) {
-      const name = (extractPersonName(p.desc) || '').slice(0, 30).trim()
-      if (!name || found.some((f) => normalizeName(f.name) === normalizeName(name))) continue
-      found.push({ name, direction: p.amount < 0 ? 'sent' : 'received' })
-    }
-    if (found.length === 0) return
-    setState((s) => {
-      let people = [...s.people]
-      for (const n of found) {
-        const idx = people.findIndex((x) => normalizeName(x.name) === normalizeName(n.name))
-        if (idx >= 0) {
-          const dirs = new Set([people[idx].direction, n.direction])
-          if (dirs.size > 1 && people[idx].direction !== 'both') {
-            const next = [...people]
-            next[idx] = { ...next[idx], direction: 'both' }
-            people = next
-          }
-          continue
-        }
-        people = [...people, { name: n.name, category: 'Other', direction: n.direction }]
-      }
-      return { ...s, people }
-    })
-    setPreview((prev) =>
-      prev.map((x) => {
-        const name = (extractPersonName(x.desc) || '').slice(0, 30).trim()
-        if (!name || x.category !== 'Other') return x
-        const dir = x.amount < 0 ? 'sent' : 'received'
-        return {
-          ...x,
-          category: categorize(x.desc, [...state.people, { name, category: 'Other', direction: dir }], x.amount),
-        }
-      }),
-    )
-    setCopiedMsg(
-      `Added ${found.length} ${found.length === 1 ? 'person' : 'people'}: ${found.map((f) => f.name).join(', ')}.`,
-    )
-    setTimeout(() => setCopiedMsg(''), 5000)
   }
 
   function importPreview() {
@@ -518,11 +436,10 @@ function App() {
     const newMonths = monthsFromTxns(preview)
     const monthList = newMonths.map((m) => formatMonth(m)).join(', ')
     setImportMsg(
-      `Imported ${preview.length} transactions.${detected.length > 0 ? ` People found: ${detected.map((d) => d.name).join(', ')}.` : ''}${newMonths.length > 0 ? ` Added to ${monthList}.` : ''}`,
+      `Imported ${preview.length} transactions.${newMonths.length > 0 ? ` Added to ${monthList}.` : ''}`,
     )
     if (newMonths.length > 0) setMonth(newMonths[newMonths.length - 1])
     setPreview(null)
-    setDetected([])
   }
 
   function handleExport() {
@@ -999,24 +916,9 @@ function App() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Review imported transactions</h2>
             <p className="hint">
-              Found {preview.length}. Check amounts are right, then import. You can edit or delete any row afterwards.
+              Found {preview.length}. Scroll down to see all rows. Check amounts are right, then import. You can edit
+              or delete any row afterwards.
             </p>
-            {detected.length > 0 && (
-              <div className="pv-people-banner">
-                <div className="pv-people-names">
-                  <strong>People in this statement:</strong>
-                  {detected.map((d) => (
-                    <span key={d.name} className={`pv-person-tag ${d.direction}`}>
-                      {d.name}
-                      {d.direction === 'sent' ? ' ↑' : d.direction === 'received' ? ' ↓' : ' ⇅'}
-                    </span>
-                  ))}
-                </div>
-                <button type="button" className="ghost bordered" onClick={addAllPeopleFromPreview}>
-                  + Add all people
-                </button>
-              </div>
-            )}
             <ul className="preview-list">
               <li className="preview-head">
                 <span className="pv-date">Date</span>
@@ -1035,28 +937,17 @@ function App() {
                     {p.category}
                   </span>
                   <span className={`pv-amt ${p.amount < 0 ? 'spent' : 'income'}`}>{fmtMoney(p.amount)}</span>
-                  {p.category === 'Other' && extractPersonName(p.desc) && (
-                    <button
-                      type="button"
-                      className="ghost pv-person"
-                      onClick={() => addPersonFromPreview(p)}
-                      title={p.amount < 0 ? 'Add as a person you send money to' : 'Add as a person who pays you'}
-                    >
-                      + person
-                    </button>
-                  )}
                 </li>
               ))}
             </ul>
-            {copiedMsg && <p className="hint">{copiedMsg}</p>}
+            {preview.length > 10 && (
+              <p className="hint">Showing all {preview.length} — scroll to the bottom, then click Import.</p>
+            )}
             <div className="modal-actions">
               <button className="primary" onClick={importPreview}>
                 Import {preview.length} transactions
               </button>
-              <button type="button" className="ghost bordered" onClick={addAllPeopleFromPreview}>
-                + Add all people
-              </button>
-              <button className="ghost" onClick={() => { setPreview(null); setDetected([]) }}>
+              <button className="ghost" onClick={() => setPreview(null)}>
                 Cancel
               </button>
             </div>
