@@ -422,6 +422,40 @@ function App() {
     setTimeout(() => setCopiedMsg(''), 5000)
   }
 
+  function addAllPeopleFromPreview() {
+    if (!preview) return
+    const found = []
+    for (const p of preview) {
+      const name = (extractPersonName(p.desc) || '').slice(0, 30).trim()
+      if (!name || found.some((f) => f.name.toLowerCase() === name.toLowerCase())) continue
+      found.push({ name, direction: p.amount < 0 ? 'sent' : 'received' })
+    }
+    if (found.length === 0) return
+    setState((s) => {
+      let people = [...s.people]
+      for (const n of found) {
+        const exists = people.some((x) => x.name.toLowerCase() === n.name.toLowerCase())
+        if (!exists) people = [...people, { name: n.name, category: 'Other', direction: n.direction }]
+      }
+      return { ...s, people }
+    })
+    setPreview((prev) =>
+      prev.map((x) => {
+        const name = (extractPersonName(x.desc) || '').slice(0, 30).trim()
+        if (!name || x.category !== 'Other') return x
+        const dir = x.amount < 0 ? 'sent' : 'received'
+        return {
+          ...x,
+          category: categorize(x.desc, [...state.people, { name, category: 'Other', direction: dir }], x.amount),
+        }
+      }),
+    )
+    setCopiedMsg(
+      `Added ${found.length} ${found.length === 1 ? 'person' : 'people'}: ${found.map((f) => f.name).join(', ')}.`,
+    )
+    setTimeout(() => setCopiedMsg(''), 5000)
+  }
+
   function importPreview() {
     if (!preview) return
     setState((s) => {
@@ -765,12 +799,12 @@ function App() {
         <section className="panel no-print">
           <h2>People</h2>
           <div className="people-summary">
-            <span className="pts">Sent to people: {fmtMoney(peopleSummary.sent)}</span>
-            <span className="ptr">Received from people: {fmtMoney(peopleSummary.received)}</span>
+            <span>Total sent <b className="pts">↑ {fmtMoney(peopleSummary.sent)}</b></span>
+            <span>Total received <b className="ptr">↓ {fmtMoney(peopleSummary.received)}</b></span>
           </div>
-          <p className="hint" style={{ marginTop: 0 }}>
-            Track who you send money to and who pays you. Transfers like "UPI/RAHUL KUMAR@YBL" are matched by
-            name — outgoing transfers are tagged from "sent to" people, credits from "received from" people.
+          <p className="hint" style={{ marginTop: 8 }}>
+            Add a name once — all their payments and credits add up here automatically. Names come from statements
+            like UPI/GOWTHAM, UPIAB/…/GOWTHAM/…, or UPI/RAHUL@YBL.
           </p>
           <div className="row">
             <input
@@ -805,30 +839,27 @@ function App() {
           </div>
           {(state.people || []).length > 0 && (
             <ul className="people-list">
-              {state.people.map((p) => {
-                const totals = personTotals(p.name, state.txns)
-                return (
-                  <li key={p.name}>
-                    <span className="people-name">{p.name}</span>
-                    <span className="people-dir">
-                      {p.direction === 'received' ? '← they pay me' : p.direction === 'sent' ? '→ I send to them' : '⇄ both ways'}
-                    </span>
-                    <span className="people-totals">
-                      <span className="pts">↑ {fmtMoney(totals.sent)} sent</span>
-                      <span className="ptr">↓ {fmtMoney(totals.received)} received</span>
-                    </span>
-                    <span
-                      className="txn-cat"
-                      style={{ color: colorFor(p.category), borderColor: colorFor(p.category) }}
-                    >
-                      {p.category}
-                    </span>
-                    <button className="ghost del" onClick={() => removePerson(p.name)} aria-label="Remove">
-                      ✕
-                    </button>
-                  </li>
-                )
-              })}
+              {[...state.people]
+                .sort((a, b) => {
+                  const ta = personTotals(a.name, state.txns)
+                  const tb = personTotals(b.name, state.txns)
+                  return tb.sent + tb.received - (ta.sent + ta.received)
+                })
+                .map((p) => {
+                  const totals = personTotals(p.name, state.txns)
+                  return (
+                    <li key={p.name}>
+                      <span className="people-name">{p.name}</span>
+                      <span className="people-totals">
+                        <span className="pts">↑ {fmtMoney(totals.sent)}</span>
+                        <span className="ptr">↓ {fmtMoney(totals.received)}</span>
+                      </span>
+                      <button className="ghost del" onClick={() => removePerson(p.name)} aria-label="Remove">
+                        ✕
+                      </button>
+                    </li>
+                  )
+                })}
             </ul>
           )}
           <div className="row" style={{ marginTop: 8 }}>
@@ -930,6 +961,9 @@ function App() {
             <div className="modal-actions">
               <button className="primary" onClick={importPreview}>
                 Import {preview.length} transactions
+              </button>
+              <button type="button" className="ghost bordered" onClick={addAllPeopleFromPreview}>
+                + Add all people
               </button>
               <button className="ghost" onClick={() => setPreview(null)}>
                 Cancel
