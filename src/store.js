@@ -170,6 +170,27 @@ export function normalizeName(name) {
   return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+export function txnKey(t) {
+  return [
+    String(t.date || '').trim(),
+    String(t.desc || '').toLowerCase().trim(),
+    Number(t.amount || 0),
+    String(t.method || '').trim(),
+  ].join('|')
+}
+
+export function dedupeTxns(txns) {
+  const seen = new Set()
+  const out = []
+  for (const t of txns) {
+    const key = txnKey(t)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(t)
+  }
+  return out
+}
+
 export function emptyState() {
   return { txns: [], balances: {}, categories: DEFAULT_CATEGORIES, people: [] }
 }
@@ -186,7 +207,9 @@ export function loadState() {
     for (const d of DEFAULT_CATEGORIES) {
       if (!categories.includes(d)) categories.push(d)
     }
-    const txns = (Array.isArray(data.txns) ? data.txns : []).filter((t) => t && typeof t === 'object')
+    const txns = dedupeTxns(
+      (Array.isArray(data.txns) ? data.txns : []).filter((t) => t && typeof t === 'object'),
+    )
     const peopleMap = new Map()
     for (const p of (Array.isArray(data.people) ? data.people : [])) {
       if (!p || typeof p !== 'object') continue

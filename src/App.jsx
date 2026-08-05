@@ -17,6 +17,7 @@ import {
   personTotals,
   exportCSV,
   CATEGORY_COLORS,
+  txnKey,
 } from './store.js'
 
 async function readPdf(file) {
@@ -507,14 +508,36 @@ function App() {
 
   function importPreview() {
     if (!preview) return
+    const seen = new Set(state.txns.map((t) => txnKey(t)))
+    const fresh = preview.filter((p) => {
+      const key = txnKey(p)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    const skipped = preview.length - fresh.length
+    if (fresh.length === 0) {
+      setImportMsg(
+        `All ${skipped} rows were already imported (duplicates) — nothing new to add.`,
+      )
+      setPreview(null)
+      return
+    }
     setState((s) => {
       const cats = [...s.categories]
-      for (const p of preview) {
+      for (const p of fresh) {
         if (!cats.includes(p.category)) cats.push(p.category)
       }
       return {
         txns: [
-          ...preview.map((p) => ({ id: uid(), date: p.date, desc: p.desc, amount: p.amount, category: p.category, method: p.method })),
+          ...fresh.map((p) => ({
+            id: uid(),
+            date: p.date,
+            desc: p.desc,
+            amount: p.amount,
+            category: p.category,
+            method: p.method,
+          })),
           ...s.txns,
         ],
         balances: s.balances,
@@ -522,10 +545,12 @@ function App() {
         people: s.people,
       }
     })
-    const newMonths = monthsFromTxns(preview)
+    const newMonths = monthsFromTxns(fresh)
     const monthList = newMonths.map((m) => formatMonth(m)).join(', ')
     setImportMsg(
-      `Imported ${preview.length} transactions.${newMonths.length > 0 ? ` Added to ${monthList}.` : ''}`,
+      `Imported ${fresh.length} of ${preview.length} transactions.${skipped > 0 ? ` Skipped ${skipped} duplicates.` : ''}${
+        newMonths.length > 0 ? ` Added to ${monthList}.` : ''
+      }`,
     )
     if (newMonths.length > 0) setMonth(newMonths[newMonths.length - 1])
     setPreview(null)

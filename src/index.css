@@ -3,36 +3,50 @@
 }
 
 :root {
-  --bg: #f1f5f9;
+  --bg: #f3f4fa;
   --panel: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --border: #e2e8f0;
-  --primary: #1d4ed8;
-  --red: #dc2626;
-  --green: #16a34a;
+  --text: #14161f;
+  --muted: #6a7080;
+  --border: #e6e8f1;
+  --primary: #5b5bd6;
+  --primary-strong: #4a4ac4;
+  --primary-soft: #eeeffd;
+  --red: #e5484d;
+  --red-soft: #fdecec;
+  --green: #2f9e63;
+  --green-soft: #e9f7f0;
+  --amber: #f5a524;
+  --shadow: 0 1px 2px rgba(20, 22, 31, 0.04), 0 12px 32px -20px rgba(20, 22, 31, 0.28);
+  --shadow-sm: 0 1px 2px rgba(20, 22, 31, 0.05);
 }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: var(--bg);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background:
+    radial-gradient(1200px 400px at 80% -10%, rgba(91, 91, 214, 0.1), transparent 60%),
+    radial-gradient(900px 380px at -10% 0%, rgba(245, 165, 36, 0.08), transparent 55%),
+    linear-gradient(180deg, #fbfbfe 0%, var(--bg) 100%);
+  background-attachment: fixed;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11', 'ss01';
 }
 
 .app {
-  max-width: 640px;
+  max-width: 920px;
   margin: 0 auto;
-  padding: 0 12px 40px;
+  padding: 0 14px 48px;
 }
 
 .header {
   position: sticky;
   top: 0;
-  background: var(--bg);
-  padding: 14px 0 10px;
-  z-index: 5;
+  background: rgba(251, 251, 254, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 12px 0 10px;
+  z-index: 30;
 }
 
 .header-inner {
@@ -45,6 +59,20 @@ body {
 h1 {
   font-size: 20px;
   margin: 0;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h1::before {
+  content: '';
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--primary), #8b5cf6);
+  box-shadow: 0 4px 10px -3px rgba(91, 91, 214, 0.6);
 }
 
 .month-nav {
@@ -65,18 +93,27 @@ h1 {
   border: none;
   color: var(--primary);
   font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 8px;
+  transition: background 0.15s ease;
 }
 
 .ghost:hover {
-  background: #e2e8f0;
+  background: var(--primary-soft);
 }
 
 .ghost.bordered {
   border: 1px solid var(--border);
   padding: 8px 14px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.ghost.bordered:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .ghost.danger {
@@ -94,22 +131,32 @@ h1 {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
 }
 
 .card-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  font-weight: 700;
 }
 
 .card-value {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 .card-value.income {
@@ -154,17 +201,19 @@ h1 {
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 18px;
+  padding: 18px;
   margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
 }
 
 .panel h2 {
-  font-size: 15px;
+  font-size: 13px;
   margin: 0 0 12px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   color: var(--muted);
+  font-weight: 800;
 }
 
 .panel-head {
@@ -193,31 +242,45 @@ h1 {
 
 .stat-card {
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 16px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-spent {
+  background: linear-gradient(180deg, #fff 0%, var(--red-soft) 140%);
+}
+
+.stat-income {
+  background: linear-gradient(180deg, #fff 0%, var(--green-soft) 140%);
+}
+
+.stat-net {
+  background: linear-gradient(180deg, #fff 0%, var(--primary-soft) 140%);
 }
 
 .stat-label {
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--muted);
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .stat-num {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
 
-.stat-spent .stat-num { color: #dc2626; }
-.stat-income .stat-num { color: #16a34a; }
-.stat-net .stat-num { color: var(--fg); }
+.stat-spent .stat-num { color: var(--red); }
+.stat-income .stat-num { color: var(--green); }
+.stat-net .stat-num { color: var(--text); }
 
 .stat-hint {
   font-size: 12px;
@@ -230,20 +293,20 @@ h1 {
 
 .trend-title {
   display: block;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .trend {
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 130px;
-  padding: 8px 4px 0;
+  height: 140px;
+  padding: 10px 4px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -260,9 +323,14 @@ h1 {
 
 .trend-bar {
   width: 100%;
-  max-width: 22px;
-  border-radius: 6px 6px 0 0;
-  background: linear-gradient(180deg, #ef4444, #b91c1c);
+  max-width: 24px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(180deg, #f97066, #e5484d);
+  transition: filter 0.15s ease;
+}
+
+.trend-col:hover .trend-bar {
+  filter: brightness(1.1);
 }
 
 .trend-day {
@@ -284,24 +352,25 @@ h1 {
 
 .seg {
   flex: 1;
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: none;
+  padding: 11px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border);
+  background: #fff;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   color: var(--muted);
+  transition: all 0.15s ease;
 }
 
 .seg.active.expense {
-  background: #fee2e2;
+  background: var(--red-soft);
   border-color: var(--red);
   color: var(--red);
 }
 
 .seg.active.income {
-  background: #dcfce7;
+  background: var(--green-soft);
   border-color: var(--green);
   color: var(--green);
 }
@@ -372,15 +441,16 @@ h1 {
 
 .month-select {
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 16px;
-  font-weight: 600;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
   font-family: inherit;
   background: #fff;
   color: var(--text);
   outline: none;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
 }
 
 .alltime {
@@ -391,10 +461,11 @@ h1 {
   gap: 10px;
   margin: 0 0 14px;
   padding: 10px 14px;
-  background: var(--bg, #f8fafc);
+  background: rgba(255, 255, 255, 0.7);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   font-size: 13px;
+  box-shadow: var(--shadow-sm);
 }
 
 .alltime-months {
@@ -435,11 +506,12 @@ h1 {
   text-align: left;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--muted);
-  font-weight: 700;
-  padding: 6px 10px;
+  font-weight: 800;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+  background: #fbfbfe;
 }
 
 .passbook th.num {
@@ -447,9 +519,14 @@ h1 {
 }
 
 .passbook td {
-  padding: 7px 10px;
+  padding: 9px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
+  transition: background 0.12s ease;
+}
+
+.passbook tbody tr:hover td {
+  background: #f8f8fd;
 }
 
 .passbook tfoot td {
@@ -461,30 +538,32 @@ h1 {
 .passbook .num {
   text-align: right;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .passbook .pb-date {
   color: var(--muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  font-size: 12px;
 }
 
 .passbook .pb-desc {
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .passbook .pb-spent {
-  color: #dc2626;
+  color: var(--red);
 }
 
 .passbook .pb-income {
-  color: #16a34a;
+  color: var(--green);
 }
 
 .passbook .pb-total {
   text-transform: uppercase;
   font-size: 11px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--muted);
 }
 
@@ -546,7 +625,9 @@ h1 {
 .busy-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.65);
+  background: rgba(24, 26, 36, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -556,14 +637,15 @@ h1 {
 
 .busy-box {
   background: #fff;
-  border-radius: 14px;
-  padding: 26px 32px;
+  border-radius: 18px;
+  padding: 30px 36px;
   max-width: 380px;
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
+  box-shadow: 0 24px 60px -20px rgba(20, 22, 31, 0.4);
 }
 
 .busy-title {
@@ -597,11 +679,12 @@ h1 {
   gap: 12px;
   margin-bottom: 14px;
   padding: 12px 14px;
-  background: #b91c1c;
+  background: linear-gradient(135deg, #e5484d, #f26d4f);
   color: #fff;
-  border-radius: 12px;
+  border-radius: 14px;
   font-weight: 600;
   font-size: 14px;
+  box-shadow: 0 10px 24px -10px rgba(229, 72, 77, 0.7);
 }
 
 .fail-banner .del {
@@ -666,20 +749,25 @@ h1 {
 
 input[type='number'],
 input[type='text'],
-input[type='date'] {
+input[type='date'],
+select {
   flex: 1;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 15px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
   outline: none;
   font-family: inherit;
   background: #fff;
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(91, 91, 214, 0.15);
 }
 
 .chips {
@@ -692,29 +780,45 @@ input:focus {
   padding: 7px 12px;
   border-radius: 999px;
   border: 1.5px solid var(--border);
-  background: none;
+  background: #fff;
   font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   color: var(--text);
+  transition: all 0.15s ease;
+}
+
+.chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .chip.active {
   color: #fff;
+  border-color: transparent;
+  box-shadow: 0 3px 8px -3px rgba(20, 22, 31, 0.35);
 }
 
 .primary {
-  padding: 12px;
+  padding: 13px;
   border: none;
-  border-radius: 10px;
-  background: var(--primary);
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--primary), #7c5cf6);
   color: #fff;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 8px 20px -8px rgba(91, 91, 214, 0.7);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
 .primary:hover {
-  background: #1e40af;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -8px rgba(91, 91, 214, 0.8);
+}
+
+.primary:active {
+  transform: translateY(0);
 }
 
 .empty {
@@ -885,7 +989,9 @@ input:focus {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.5);
+  background: rgba(24, 26, 36, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -895,14 +1001,27 @@ input:focus {
 
 .modal {
   background: #fff;
-  border-radius: 14px;
-  padding: 18px;
+  border-radius: 18px;
+  padding: 20px;
   width: 100%;
-  max-width: 520px;
+  max-width: 560px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  box-shadow: 0 24px 60px -20px rgba(20, 22, 31, 0.4);
+  animation: pop 0.18s ease;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .modal h2 {
