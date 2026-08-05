@@ -119,6 +119,10 @@ function colorFor(category) {
   return CATEGORY_COLORS[category] || '#64748b'
 }
 
+function isFailMsg(msg) {
+  return /Could not|Failed|password|encrypt/i.test(msg)
+}
+
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 }
@@ -587,6 +591,14 @@ function App() {
       </header>
 
       <main>
+        {importMsg && isFailMsg(importMsg) && (
+          <div className="fail-banner no-print">
+            <span>{importMsg}</span>
+            <button className="ghost del" onClick={() => setImportMsg('')} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        )}
         <section className="cards no-print">
           <div className="card">
             <span className="card-label">Starting Balance</span>
@@ -1010,9 +1022,7 @@ function App() {
             </button>
           </div>
           {importMsg && (
-            <p className={importMsg.includes('Could not') || importMsg.includes('Failed') ? 'import-msg fail' : 'hint'}>
-              {importMsg}
-            </p>
+            <p className={isFailMsg(importMsg) ? 'import-msg fail' : 'hint'}>{importMsg}</p>
           )}
           <p className="hint">
             Descriptions are auto-categorized: Swiggy/Zomato → Food, Indian Oil/Shell → Petrol, Amazon/Flipkart →
@@ -1042,6 +1052,16 @@ function App() {
           </div>
         </section>
       </main>
+
+      {busy && (
+        <div className="busy-overlay no-print">
+          <div className="busy-box">
+            <div className="spinner" />
+            <p className="busy-title">{importMsg || 'Reading file...'}</p>
+            <p className="hint">This can take a minute or two for scanned statements. Please don't close the tab.</p>
+          </div>
+        </div>
+      )}
 
       {preview && (
         <div className="modal-backdrop no-print" onClick={() => { setPreview(null); setDetected([]) }}>
