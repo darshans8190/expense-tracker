@@ -163,6 +163,8 @@ export function categorize(desc, people = [], amount = -1) {  const lower = Stri
   for (const rule of FLAT_RULES) {
     if (ruleMatches(rule, lower)) return rule.cat
   }
+  const pname = extractPersonName(desc)
+  if (pname) return pname.trim().slice(0, 30).toUpperCase()
   return 'Other'
 }
 
@@ -209,7 +211,17 @@ export function loadState() {
     }
     const txns = dedupeTxns(
       (Array.isArray(data.txns) ? data.txns : []).filter((t) => t && typeof t === 'object'),
-    )
+    ).map((t) => {
+      if (t.category === 'Other') {
+        const pname = extractPersonName(t.desc)
+        if (pname) {
+          const cat = pname.trim().slice(0, 30).toUpperCase()
+          if (!categories.includes(cat)) categories.push(cat)
+          return { ...t, category: cat }
+        }
+      }
+      return t
+    })
     const peopleMap = new Map()
     for (const p of (Array.isArray(data.people) ? data.people : [])) {
       if (!p || typeof p !== 'object') continue
