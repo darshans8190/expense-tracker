@@ -191,6 +191,17 @@ function App() {
 
   const incomeTxns = useMemo(() => monthTxns.filter((t) => t.amount > 0), [monthTxns])
 
+  const peopleSummary = useMemo(() => {
+    let sent = 0
+    let received = 0
+    for (const p of state.people) {
+      const t = personTotals(p.name, state.txns)
+      sent += t.sent
+      received += t.received
+    }
+    return { sent, received }
+  }, [state.people, state.txns])
+
   function addTxn(e) {
     e.preventDefault()
     const amount = parseFloat(form.amount)
@@ -753,6 +764,10 @@ function App() {
 
         <section className="panel no-print">
           <h2>People</h2>
+          <div className="people-summary">
+            <span className="pts">Sent to people: {fmtMoney(peopleSummary.sent)}</span>
+            <span className="ptr">Received from people: {fmtMoney(peopleSummary.received)}</span>
+          </div>
           <p className="hint" style={{ marginTop: 0 }}>
             Track who you send money to and who pays you. Transfers like "UPI/RAHUL KUMAR@YBL" are matched by
             name — outgoing transfers are tagged from "sent to" people, credits from "received from" people.
@@ -799,9 +814,8 @@ function App() {
                       {p.direction === 'received' ? '← they pay me' : p.direction === 'sent' ? '→ I send to them' : '⇄ both ways'}
                     </span>
                     <span className="people-totals">
-                      {totals.sent > 0 && <span className="pts">↑ {fmtMoney(totals.sent)} sent</span>}
-                      {totals.received > 0 && <span className="ptr">↓ {fmtMoney(totals.received)} received</span>}
-                      {totals.sent === 0 && totals.received === 0 && <span className="pts none">no payments yet</span>}
+                      <span className="pts">↑ {fmtMoney(totals.sent)} sent</span>
+                      <span className="ptr">↓ {fmtMoney(totals.received)} received</span>
                     </span>
                     <span
                       className="txn-cat"

@@ -266,6 +266,17 @@ h1 {
   white-space: nowrap;
 }
 
+.people-summary {
+  display: flex;
+  gap: 16px;
+  margin: 6px 0 2px;
+  padding: 8px 12px;
+  background: var(--bg, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
 .people-totals {
   display: flex;
   flex-direction: column;

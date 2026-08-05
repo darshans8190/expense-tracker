@@ -71,15 +71,15 @@ function ruleMatches(rule, lower) {
 
 export function extractPersonName(desc) {
   const s = String(desc || '')
-  const upi = s.match(/UPIAR\//i)
-  if (upi) {
+  const seg = s.match(/UPI[A-Z]+\//i)
+  if (seg) {
     const parts = s
-      .slice(upi.index + 6)
+      .slice(seg.index + seg[0].length)
       .split('/')
       .map((x) => x.trim())
       .filter(Boolean)
     if (parts.length >= 2) return parts[1]
-    if (parts.length === 1) return parts[0]
+    if (parts.length === 1) return parts[0].split('@')[0]
   }
   const m = s.match(/UPI\/([^/@\s]+)/i)
   if (m) return m[1]
@@ -88,7 +88,9 @@ export function extractPersonName(desc) {
 
 export function cleanUPIDesc(desc) {
   const s = String(desc || '')
-  if (!/UPIAR\//i.test(s)) return s
+    .replace(/^U\d{4,}\s+/, '')
+    .trim()
+  if (!/UPI[A-Z]+\//i.test(s)) return s
   const name = extractPersonName(s)
   return name ? `UPI/${name}` : s
 }
@@ -327,6 +329,7 @@ function cleanDesc(line) {
       .replace(/\b\d{1,2}\s+[A-Za-z]{3}\.?\s+\d{4}\b/g, ' ')
       .replace(/\b(dr|debit|cr|credit)\b/gi, ' ')
       .replace(/\s+[\d,]+\.\d{1,2}/g, ' ')
+      .replace(/[A-Za-z]{2,}[\d,]+\.\d{1,2}/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 80),
@@ -347,6 +350,9 @@ function amountSign(line, amounts) {
   const lower = line.toLowerCase()
   if (/\b(dr|debit)\b/.test(lower)) return -1
   if (/\b(cr|credit)\b/.test(lower)) return 1
+  const rest = lower.replace(/[-+]?\s*[\d,]+\.\d{1,2}/g, ' ').replace(/\s+/g, ' ').trim()
+  if (rest === 'dr' || rest === 'debit' || rest.endsWith(' dr')) return -1
+  if (rest === 'cr' || rest === 'credit' || rest.endsWith(' cr')) return 1
   if (amounts[0].sign === '+' || amounts[0].sign === '-') return amounts[0].sign === '+' ? 1 : -1
   return -1
 }
