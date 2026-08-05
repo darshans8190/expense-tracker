@@ -412,6 +412,7 @@ function App() {
         ],
         balances: s.balances,
         categories: cats,
+        people: s.people,
       }
     })
     setImportMsg(`Imported ${preview.length} transactions.`)
@@ -750,7 +751,7 @@ function App() {
               + Add
             </button>
           </div>
-          {state.people.length > 0 && (
+          {(state.people || []).length > 0 && (
             <ul className="people-list">
               {state.people.map((p) => (
                 <li key={p.name}>
