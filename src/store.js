@@ -237,6 +237,15 @@ export function shiftMonth(key, delta) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+export function monthsFromTxns(txns) {
+  const set = new Set()
+  for (const t of txns) {
+    const k = monthKey(t.date)
+    if (k) set.add(k)
+  }
+  return [...set].sort()
+}
+
 export function fmtMoney(n) {
   const sign = n < 0 ? '-' : ''
   const abs = Math.abs(n)

@@ -266,6 +266,60 @@ h1 {
   white-space: nowrap;
 }
 
+.month-select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: inherit;
+  background: #fff;
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+}
+
+.alltime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: var(--bg, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.alltime-months {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.alltime .chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.alltime .spent {
+  color: #ef4444;
+}
+
+.alltime .income {
+  color: #22c55e;
+}
+
+.month-label {
+  font-size: 17px;
+  font-weight: 700;
+  min-width: 110px;
+  text-align: center;
+}
+
 .people-summary {
   display: flex;
   gap: 16px;

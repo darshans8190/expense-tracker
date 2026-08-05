@@ -7,6 +7,7 @@ import {
   todayStr,
   formatMonth,
   shiftMonth,
+  monthsFromTxns,
   fmtMoney,
   parseBankCSV,
   parseBankPDF,
@@ -204,6 +205,14 @@ function App() {
     }
     return { sent, received }
   }, [state.people, state.txns])
+
+  const dataMonths = useMemo(() => monthsFromTxns(state.txns), [state.txns])
+  const allMonths = useMemo(() => {
+    const set = new Set([month, ...dataMonths])
+    return [...set].sort()
+  }, [month, dataMonths])
+  const allSpent = state.txns.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0)
+  const allIncome = state.txns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)
 
   function addTxn(e) {
     e.preventDefault()
@@ -506,9 +515,12 @@ function App() {
         people: s.people,
       }
     })
+    const newMonths = monthsFromTxns(preview)
+    const monthList = newMonths.map((m) => formatMonth(m)).join(', ')
     setImportMsg(
-      `Imported ${preview.length} transactions.${detected.length > 0 ? ` People found: ${detected.map((d) => d.name).join(', ')}.` : ''}`,
+      `Imported ${preview.length} transactions.${detected.length > 0 ? ` People found: ${detected.map((d) => d.name).join(', ')}.` : ''}${newMonths.length > 0 ? ` Added to ${monthList}.` : ''}`,
     )
+    if (newMonths.length > 0) setMonth(newMonths[newMonths.length - 1])
     setPreview(null)
     setDetected([])
   }
@@ -542,7 +554,18 @@ function App() {
             <button className="ghost" onClick={() => setMonth((m) => shiftMonth(m, -1))} aria-label="Previous month">
               ‹
             </button>
-            <span className="month-label">{formatMonth(month)}</span>
+            <select
+              className="month-select"
+              value={month}
+              title="Jump to any month with data"
+              onChange={(e) => setMonth(e.target.value)}
+            >
+              {allMonths.map((m) => (
+                <option key={m} value={m}>
+                  {formatMonth(m)}
+                </option>
+              ))}
+            </select>
             <button className="ghost" onClick={() => setMonth((m) => shiftMonth(m, 1))} aria-label="Next month">
               ›
             </button>
@@ -596,6 +619,22 @@ function App() {
             </span>
           </div>
         </section>
+
+        <div className="alltime no-print">
+          <span>
+            All data: <b>{dataMonths.length}</b> {dataMonths.length === 1 ? 'month' : 'months'} · Total spent{' '}
+            <b className="spent">{fmtMoney(allSpent)}</b> · Total received <b className="income">{fmtMoney(allIncome)}</b>
+          </span>
+          {dataMonths.length > 1 && (
+            <span className="alltime-months">
+              {dataMonths.map((m, i) => (
+                <button key={m} className={m === month ? 'chip active' : 'chip'} onClick={() => setMonth(m)}>
+                  {formatMonth(m)}
+                </button>
+              ))}
+            </span>
+          )}
+        </div>
 
         <section className="panel no-print">
           <h2>{form.editingId ? 'Edit Transaction' : 'Add Transaction'}</h2>
