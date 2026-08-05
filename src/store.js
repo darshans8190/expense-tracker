@@ -111,8 +111,18 @@ export function detectPeople(txns) {
   }
   return [...map.values()]
 }
+export function personTxns(name, txns) {
+  const lower = String(name || '').toLowerCase()
+  if (!lower) return []
+  const variants = [lower, lower.replace(/\s+/g, '')]
+  return txns.filter((t) => {
+    const d = String(t.desc || '').toLowerCase()
+    return variants.some((v) => v && d.includes(v))
+  })
+}
 
-export function personTotals(name, txns) {  const lower = String(name || '').toLowerCase()
+export function personTotals(name, txns) {
+  const lower = String(name || '').toLowerCase()
   if (!lower) return { sent: 0, received: 0 }
   const variants = new Set([lower, lower.replace(/\s+/g, '')])
   let sent = 0

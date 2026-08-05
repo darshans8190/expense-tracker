@@ -13,6 +13,7 @@ import {
   parseBankPDF,
   categorize,
   normalizeName,
+  personTxns,
   personTotals,
   exportCSV,
   CATEGORY_COLORS,
@@ -192,6 +193,20 @@ function App() {
 
   const incomeTxns = useMemo(() => monthTxns.filter((t) => t.amount > 0), [monthTxns])
 
+  const peopleMonth = useMemo(
+    () =>
+      state.people
+        .map((p) => {
+          const txns = personTxns(p.name, monthTxns)
+          const sent = txns.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0)
+          const received = txns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)
+          return { name: p.name, sent, received, txns }
+        })
+        .filter((g) => g.sent > 0 || g.received > 0)
+        .sort((a, b) => b.sent + b.received - (a.sent + a.received)),
+    [state.people, monthTxns],
+  )
+
   const peopleSummary = useMemo(() => {
     let sent = 0
     let received = 0
@@ -326,6 +341,19 @@ function App() {
       lines.push(`Income - ${fmtMoney(income)} (${incomeTxns.length} txns)`)
       for (const t of incomeTxns) {
         lines.push(`  ${t.date} ${t.desc || t.category} ${fmtMoney(t.amount)}`)
+      }
+    }
+    if (peopleMonth.length > 0) {
+      const pSent = peopleMonth.reduce((s, g) => s + g.sent, 0)
+      const pRecv = peopleMonth.reduce((s, g) => s + g.received, 0)
+      lines.push(`People - sent ${fmtMoney(pSent)} | received ${fmtMoney(pRecv)}`)
+      for (const g of peopleMonth) {
+        lines.push(
+          `  ${g.name}: sent ${fmtMoney(g.sent)}${g.received > 0 ? ` | received ${fmtMoney(g.received)}` : ''} (${g.txns.length} txns)`,
+        )
+        for (const t of g.txns) {
+          lines.push(`    ${t.date} ${t.desc || t.category} ${fmtMoney(t.amount)}`)
+        }
       }
     }
     navigator.clipboard
@@ -752,6 +780,48 @@ function App() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+              {peopleMonth.length > 0 && (
+                <div className="stmt-group">
+                  <div className="stmt-head">
+                    <span className="bar-cat">
+                      <span className="dot" style={{ background: '#f59e0b' }} />
+                      People
+                    </span>
+                    <span className="stmt-total">
+                      ↑ {fmtMoney(peopleMonth.reduce((s, g) => s + g.sent, 0))} sent · ↓{' '}
+                      {fmtMoney(peopleMonth.reduce((s, g) => s + g.received, 0))} received
+                    </span>
+                  </div>
+                  {peopleMonth.map((g) => (
+                    <div className="stmt-people" key={g.name}>
+                      <div className="stmt-head">
+                        <span className="person-name">{g.name}</span>
+                        <span className="stmt-total">
+                          {g.sent > 0 && (
+                            <span className="spent">
+                              ↑ {fmtMoney(g.sent)} sent
+                            </span>
+                          )}
+                          {g.received > 0 && (
+                            <span className="income">
+                              {' '}· ↓ {fmtMoney(g.received)} received
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <ul className="stmt-txns">
+                        {g.txns.map((t) => (
+                          <li key={t.id}>
+                            <span className="txn-date">{t.date}</span>
+                            <span className="pv-desc">{t.desc || t.category}{t.method ? <em className="txn-method"> · {t.method}</em> : null}</span>
+                            <span className={`pv-amt ${t.amount < 0 ? 'spent' : 'income'}`}>{fmtMoney(t.amount)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
                 </div>
               )}
             </>
