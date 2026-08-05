@@ -120,6 +120,12 @@ function colorFor(category) {
   return CATEGORY_COLORS[category] || '#64748b'
 }
 
+function fmtShort(v) {
+  if (v >= 100000) return `₹${(v / 100000).toFixed(1).replace(/\.0$/, '')}L`
+  if (v >= 1000) return `₹${(v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, '')}k`
+  return `₹${v}`
+}
+
 function isFailMsg(msg) {
   return /Could not|Failed|password|encrypt/i.test(msg)
 }
@@ -703,6 +709,7 @@ function App() {
               <div className="trend">
                 {dailySpend.map(([day, amt]) => (
                   <div className="trend-col" key={day} title={`${day} ${formatMonth(month).split(' ')[0]}: ${fmtMoney(amt)}`}>
+                    <span className="trend-amt">{fmtShort(amt)}</span>
                     <div className="trend-bar" style={{ height: `${Math.max(5, (amt / maxDay) * 100)}%` }} />
                     <span className="trend-day">{day}</span>
                   </div>

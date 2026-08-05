@@ -318,7 +318,15 @@ h1::before {
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
+}
+
+.trend-amt {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 12px;
+  white-space: nowrap;
 }
 
 .trend-bar {
