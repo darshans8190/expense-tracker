@@ -16,7 +16,6 @@ import {
   personTxns,
   personTotals,
   extractPersonName,
-  detectPeople,
   exportCSV,
   CATEGORY_COLORS,
   txnKey,
@@ -289,26 +288,6 @@ function App() {
   const pSent = peopleMonth.reduce((s, g) => s + g.sent, 0)
   const pRecv = peopleMonth.reduce((s, g) => s + g.received, 0)
   const pMax = Math.max(...peopleMonth.map((g) => g.sent + g.received), 1)
-
-  const dashboardPeople = useMemo(() => {
-    const names = new Map()
-    for (const p of state.people) {
-      const key = normalizeName(p.name)
-      if (key && !names.has(key)) names.set(key, p.name)
-    }
-    for (const d of detectPeople(monthTxns)) {
-      const key = normalizeName(d.name)
-      if (key && !names.has(key)) names.set(key, d.name)
-    }
-    return [...names.values()]
-      .map((name) => {
-        const t = personTotals(name, monthTxns)
-        return { name, sent: t.sent, received: t.received }
-      })
-      .filter((g) => g.sent > 0 || g.received > 0)
-      .sort((a, b) => b.sent + b.received - (a.sent + a.received))
-  }, [state.people, monthTxns])
-  const dMax = Math.max(...dashboardPeople.map((g) => g.sent + g.received), 1)
 
   const peopleSummary = useMemo(() => {
     let sent = 0
@@ -781,28 +760,6 @@ function App() {
                     <span className="trend-amt">{fmtShort(amt)}</span>
                     <div className="trend-bar" style={{ height: `${Math.max(5, (amt / maxDay) * 100)}%` }} />
                     <span className="trend-day">{day}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {dashboardPeople.length > 0 && (
-            <div className="trend-wrap">
-              <span className="trend-title">People</span>
-              <div className="people-stmt">
-                {dashboardPeople.map((g) => (
-                  <div className="pstmt-row" key={g.name}>
-                    <div className="pstmt-head">
-                      <span className="pstmt-name">{g.name}</span>
-                      <span className="pstmt-nums">
-                        <span className="ps">sent {fmtMoney(g.sent)}</span>
-                        <span className="pr">received {fmtMoney(g.received)}</span>
-                      </span>
-                    </div>
-                    <div className="pstmt-track">
-                      <div className="pstmt-sent" style={{ width: `${(g.sent / dMax) * 100}%` }} />
-                      <div className="pstmt-recv" style={{ width: `${(g.received / dMax) * 100}%` }} />
-                    </div>
                   </div>
                 ))}
               </div>
