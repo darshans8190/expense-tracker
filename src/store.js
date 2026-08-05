@@ -140,6 +140,10 @@ export function categorize(desc, people = [], amount = -1) {  const lower = Stri
   return 'Other'
 }
 
+export function normalizeName(name) {
+  return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
 export function emptyState() {
   return { txns: [], balances: {}, categories: DEFAULT_CATEGORIES, people: [] }
 }
@@ -157,9 +161,21 @@ export function loadState() {
       if (!categories.includes(d)) categories.push(d)
     }
     const txns = (Array.isArray(data.txns) ? data.txns : []).filter((t) => t && typeof t === 'object')
-    const people = (Array.isArray(data.people) ? data.people : [])
-      .filter((p) => p && typeof p === 'object')
-      .map((p) => ({ name: String(p.name || ''), category: p.category || 'Other', direction: p.direction || 'both' }))
+    const peopleMap = new Map()
+    for (const p of (Array.isArray(data.people) ? data.people : [])) {
+      if (!p || typeof p !== 'object') continue
+      const name = normalizeName(p.name)
+      if (!name) continue
+      const entry = { name: p.name.trim(), category: p.category || 'Other', direction: p.direction || 'both' }
+      if (peopleMap.has(name)) {
+        const ex = peopleMap.get(name)
+        const dirs = new Set([ex.direction, entry.direction])
+        peopleMap.set(name, { ...ex, direction: dirs.size > 1 ? 'both' : ex.direction })
+      } else {
+        peopleMap.set(name, entry)
+      }
+    }
+    const people = [...peopleMap.values()]
     return {
       txns,
       balances: data.balances && typeof data.balances === 'object' ? data.balances : {},

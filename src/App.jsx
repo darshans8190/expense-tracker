@@ -12,6 +12,7 @@ import {
   parseBankPDF,
   categorize,
   extractPersonName,
+  normalizeName,
   personTotals,
   exportCSV,
   CATEGORY_COLORS,
@@ -270,8 +271,17 @@ function App() {
     const name = personName.trim()
     if (!name) return
     setState((s) => {
-      const exists = s.people.some((p) => p.name.toLowerCase() === name.toLowerCase())
-      if (exists) return s
+      const idx = s.people.findIndex((p) => normalizeName(p.name) === normalizeName(name))
+      if (idx >= 0) {
+        const ex = s.people[idx]
+        const dirs = new Set([ex.direction, personDir])
+        if (dirs.size > 1 && ex.direction !== 'both') {
+          const next = [...s.people]
+          next[idx] = { ...ex, direction: 'both' }
+          return { ...s, people: next }
+        }
+        return s
+      }
       return { ...s, people: [...s.people, { name, category: personCat, direction: personDir }] }
     })
     setPersonName('')
@@ -403,8 +413,17 @@ function App() {
     if (!name) return
     const direction = p.amount < 0 ? 'sent' : 'received'
     setState((s) => {
-      const exists = s.people.some((x) => x.name.toLowerCase() === name.toLowerCase())
-      if (exists) return s
+      const idx = s.people.findIndex((x) => normalizeName(x.name) === normalizeName(name))
+      if (idx >= 0) {
+        const ex = s.people[idx]
+        const dirs = new Set([ex.direction, direction])
+        if (dirs.size > 1 && ex.direction !== 'both') {
+          const next = [...s.people]
+          next[idx] = { ...ex, direction: 'both' }
+          return { ...s, people: next }
+        }
+        return s
+      }
       return { ...s, people: [...s.people, { name, category: 'Other', direction }] }
     })
     setPreview((prev) =>
@@ -427,15 +446,24 @@ function App() {
     const found = []
     for (const p of preview) {
       const name = (extractPersonName(p.desc) || '').slice(0, 30).trim()
-      if (!name || found.some((f) => f.name.toLowerCase() === name.toLowerCase())) continue
+      if (!name || found.some((f) => normalizeName(f.name) === normalizeName(name))) continue
       found.push({ name, direction: p.amount < 0 ? 'sent' : 'received' })
     }
     if (found.length === 0) return
     setState((s) => {
       let people = [...s.people]
       for (const n of found) {
-        const exists = people.some((x) => x.name.toLowerCase() === n.name.toLowerCase())
-        if (!exists) people = [...people, { name: n.name, category: 'Other', direction: n.direction }]
+        const idx = people.findIndex((x) => normalizeName(x.name) === normalizeName(n.name))
+        if (idx >= 0) {
+          const dirs = new Set([people[idx].direction, n.direction])
+          if (dirs.size > 1 && people[idx].direction !== 'both') {
+            const next = [...people]
+            next[idx] = { ...next[idx], direction: 'both' }
+            people = next
+          }
+          continue
+        }
+        people = [...people, { name: n.name, category: 'Other', direction: n.direction }]
       }
       return { ...s, people }
     })
