@@ -192,7 +192,7 @@ export function dedupeTxns(txns) {
 }
 
 export function emptyState() {
-  return { txns: [], balances: {}, categories: DEFAULT_CATEGORIES, people: [], budgets: {} }
+  return { txns: [], balances: {}, categories: DEFAULT_CATEGORIES, people: [], budgets: {}, goals: [] }
 }
 
 export function loadState() {
@@ -246,6 +246,7 @@ export function loadState() {
       categories: cleanedCategories,
       people,
       budgets: data.budgets && typeof data.budgets === 'object' ? data.budgets : {},
+      goals: Array.isArray(data.goals) ? data.goals : [],
     }
   } catch {
     return emptyState()
@@ -544,4 +545,204 @@ export function parseBankPDF(text, people = []) {
     pendingDesc = []
   }
   return out
+}
+
+export const ACCOUNTS = ['Bank', 'Cash', 'UPI', 'Card', 'Other']
+
+export function detectSubscriptions(txns) {
+  const out = []
+  const groups = new Map()
+  for (const t of txns) {
+    if (t.amount >= 0) continue
+    const key = normalizeName(t.desc) + '|' + (t.method || '') + '|' + t.amount
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(t)
+  }
+  for (const [key, group] of groups) {
+    if (group.length < 3) continue
+    const months = new Set(group.map((t) => t.date.slice(0, 7)))
+    if (months.size < 3) continue
+    const sorted = [...group].sort((a, b) => (a.date < b.date ? 1 : -1))
+    const amounts = new Set(group.map((t) => t.amount))
+    if (amounts.size > 1) continue
+    out.push({
+      name: group[0].desc,
+      amount: -group[0].amount,
+      category: group[0].category,
+      method: group[0].method || '',
+      times: group.length,
+      months: months.size,
+      last: sorted[0].date,
+    })
+  }
+  return out.sort((a, b) => b.amount - a.amount)
+}
+
+export function generateInsights(state, monthTxns, spent, income, month, monthBudget) {
+  const insights = []
+  if (monthTxns.length === 0) return insights
+  const spendTxns = monthTxns.filter((t) => t.amount < 0)
+  const incTxns = monthTxns.filter((t) => t.amount > 0)
+  const byCat = new Map()
+  for (const t of spendTxns) byCat.set(t.category, (byCat.get(t.category) || 0) + -t.amount)
+  const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1])
+  if (cats.length > 0) {
+    const [topCat, topAmt] = cats[0]
+    const pct = Math.round((topAmt / spent) * 100)
+    insights.push({
+      icon: '🔥',
+      title: `${topCat} is your biggest spend`,
+      body: `${fmt(pct)}% of this month (${fmtMoney(topAmt)}). Consider a ${topCat.toLowerCase()} budget if it feels high.`,
+    })
+  }
+  const dayCount = new Set(spendTxns.map((t) => t.date)).size
+  const avgDay = dayCount > 0 ? spent / dayCount : 0
+  insights.push({
+    icon: '📅',
+    title: `${fmtMoney(avgDay)} spent per active day`,
+    body: `${fmtMoney(spent)} across ${dayCount} days, ${spendTxns.length} transactions (avg ${fmtMoney(spent / (spendTxns.length || 1))} each).`,
+  })
+  const big = spendTxns.reduce((m, t) => (t.amount < m.amount ? t : m), spendTxns[0])
+  if (big) {
+    insights.push({
+      icon: '💥',
+      title: `Largest expense: ${fmtMoney(-big.amount)}`,
+      body: `${big.desc} on ${fmtDateShort(big.date)} — that's ${fmt(Math.round((-big.amount / spent) * 100))}% of the month.`,
+    })
+  }
+  if (incTxns.length > 0 && income > 0 && spent > 0) {
+    const rate = Math.max(0, Math.round(((income - spent) / income) * 100))
+    const ok = income - spent >= 0
+    insights.push({
+      icon: ok ? '🏦' : '🚨',
+      title: ok ? `Savings rate ${rate}%` : `Spending ${fmt(-(income - spent))} more than you earned`,
+      body: ok
+        ? `You saved ${fmtMoney(income - spent)} this month. ${rate >= 20 ? 'Great discipline! Try to keep it above 20%.' : 'Aim for at least 20% to build a cushion.'}`
+        : `You spent ${fmtMoney(spent)} against ${fmtMoney(income)} earned. Cut back or the gap grows every month.`,
+    })
+  }
+  const weekend = spendTxns.filter((t) => [0, 6].includes(new Date(t.date).getDay()))
+  const weekPct = Math.round((weekend.reduce((s, t) => s + -t.amount, 0) / spent) * 100)
+  if (weekend.length > 0 && weekPct >= 30) {
+    insights.push({
+      icon: '🎉',
+      title: `${weekPct}% spent on weekends`,
+      body: `${fmtMoney(weekend.reduce((s, t) => s + -t.amount, 0))} on ${weekend.length} weekend transactions. Fun is good — just keep it under a third.`,
+    })
+  }
+  if (monthBudget > 0) {
+    const pct = (spent / monthBudget) * 100
+    insights.push({
+      icon: pct >= 100 ? '🚨' : pct >= 80 ? '⚠️' : '✅',
+      title: pct >= 100 ? 'Over budget' : pct >= 80 ? `${fmt(pct)}% of budget used` : `On track: ${fmt(pct)}% of budget`,
+      body:
+        pct >= 100
+          ? `You're ${fmtMoney(spent - monthBudget)} over. Review the rest of the month before spending more.`
+          : pct >= 80
+            ? `${fmtMoney(monthBudget - spent)} left for the month — pace your remaining spending.`
+            : `${fmtMoney(monthBudget - spent)} still available. Keep it going.`,
+    })
+  }
+  return insights
+}
+
+export function computeHealthScore(state, month) {
+  const txns = state.txns
+  if (txns.length === 0) return { score: null, grade: null, tips: [] }
+  let score = 0
+  const tips = []
+  const monthSpend = txns.filter((t) => t.date.startsWith(month) && t.amount < 0)
+  const monthInc = txns.filter((t) => t.date.startsWith(month) && t.amount > 0)
+  const spent = monthSpend.reduce((s, t) => s + -t.amount, 0)
+  const income = monthInc.reduce((s, t) => s + t.amount, 0)
+  const budget = state.budgets?.[month] || 0
+
+  if (budget > 0 && spent > 0) {
+    const ratio = spent / budget
+    if (ratio <= 1) {
+      score += 30 - Math.max(0, (ratio - 0.5)) * 10
+      tips.push('Sticking to your budget — excellent.')
+    } else {
+      score += Math.max(0, 20 - (ratio - 1) * 15)
+      tips.push('You exceeded your monthly budget — trim discretionary spending.')
+    }
+  } else {
+    score += 20
+    tips.push('Set a monthly budget to unlock full score benefits.')
+  }
+  const net = income - spent
+  if (income > 0) {
+    const rate = net / income
+    score += 30 * Math.max(0, rate)
+    if (rate >= 0.2) tips.push('Savings rate above 20% — great discipline.')
+    else if (rate >= 0) tips.push('You saved some, but a 20%+ savings rate is the healthy target.')
+    else tips.push('Spending more than you earn each month is risky — cut back.')
+  } else {
+    score += 15
+    tips.push('Log your income to get savings-rate points.')
+  }
+  if (txns.length >= 30) {
+    score += 20
+    tips.push('Long transaction history — solid tracking habit.')
+  } else {
+    score += Math.min(20, txns.length / 30 * 20)
+    tips.push('The more you log, the smarter the insights get.')
+  }
+  const spendAll = txns.filter((t) => t.amount < 0)
+  const catTotals = new Map()
+  for (const t of spendAll) catTotals.set(t.category, (catTotals.get(t.category) || 0) + -t.amount)
+  const topShare = catTotals.size ? Math.max(...catTotals.values()) / (spendAll.reduce((s, t) => s + -t.amount, 0) || 1) : 1
+  score += 15 * (1 - topShare)
+  if (topShare > 0.7) tips.push('Over 70% of your spending is in one category — diversifying reduces risk.')
+  else if (topShare > 0.45) tips.push('Spending is a bit concentrated — check your top category.')
+  else tips.push('Well-diversified spending across categories.')
+
+  score = Math.round(Math.min(100, Math.max(0, score)))
+  const grade = score >= 85 ? 'Excellent' : score >= 70 ? 'Good' : score >= 50 ? 'Fair' : 'Needs work'
+  return { score, grade, tips }
+}
+
+export async function encryptBackup(json, password) {
+  const enc = new TextEncoder()
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await deriveKey(password, salt)
+  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(json))
+  return {
+    app: 'expense-tracker',
+    version: 1,
+    encrypted: true,
+    salt: btoa(String.fromCharCode(...salt)),
+    iv: btoa(String.fromCharCode(...iv)),
+    data: btoa(String.fromCharCode(...new Uint8Array(cipher))),
+  }
+}
+
+export async function decryptBackup(obj, password) {
+  const toBytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
+  const key = await deriveKey(password, toBytes(obj.salt))
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: toBytes(obj.iv) }, key, toBytes(obj.data))
+  return JSON.parse(new TextDecoder().decode(plain))
+}
+
+async function deriveKey(password, salt) {
+  const enc = new TextEncoder()
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey'])
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+}
+
+function fmt(n) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
+function fmtDateShort(iso) {
+  if (!iso) return '?'
+  const d = new Date(iso + 'T00:00:00')
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }

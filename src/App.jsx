@@ -19,6 +19,12 @@ import {
   exportCSV,
   CATEGORY_COLORS,
   txnKey,
+  ACCOUNTS,
+  detectSubscriptions,
+  generateInsights,
+  computeHealthScore,
+  encryptBackup,
+  decryptBackup,
 } from './store.js'
 
 async function readPdf(file) {
@@ -251,10 +257,22 @@ function App() {
     desc: '',
     date: todayStr(),
     method: 'UPI',
+    account: 'Bank',
     editingId: null,
     photo: null,
     note: '',
   })
+  const [accountFilter, setAccountFilter] = useState('All')
+  const [voiceMsg, setVoiceMsg] = useState('')
+  const [listening, setListening] = useState(false)
+  const [scan, setScan] = useState(null)
+  const [splitTxn, setSplitTxn] = useState(null)
+  const [splitNames, setSplitNames] = useState('')
+  const [goalName, setGoalName] = useState('')
+  const [goalTarget, setGoalTarget] = useState('')
+  const [backupPass, setBackupPass] = useState('')
+  const [backupMsg, setBackupMsg] = useState('')
+  const [enableAlerts, setEnableAlerts] = useState(false)
   const [newCategory, setNewCategory] = useState('')
   const [importMsg, setImportMsg] = useState('')
   const [preview, setPreview] = useState(null)
@@ -268,6 +286,8 @@ function App() {
   const [pastedText, setPastedText] = useState('')
   const fileRef = useRef(null)
   const photoRef = useRef(null)
+  const scanRef = useRef(null)
+  const backupRef = useRef(null)
 
   const [dark, setDark] = useState(() => {
     try {
@@ -296,12 +316,24 @@ function App() {
     }
   }, [state])
 
-  const monthTxns = useMemo(
+  const monthTxnsRaw = useMemo(
     () =>
       state.txns
         .filter((t) => monthKey(t.date) === month)
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
     [state.txns, month],
+  )
+
+  const accountsUsed = useMemo(() => {
+    const set = new Set(['All'])
+    for (const t of state.txns) set.add(t.account || 'Bank')
+    return [...set]
+  }, [state.txns])
+
+  const monthTxns = useMemo(
+    () =>
+      accountFilter === 'All' ? monthTxnsRaw : monthTxnsRaw.filter((t) => (t.account || 'Bank') === accountFilter),
+    [monthTxnsRaw, accountFilter],
   )
 
   const spent = monthTxns.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0)
@@ -382,6 +414,72 @@ function App() {
   const allSpent = state.txns.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0)
   const allIncome = state.txns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)
 
+  const monthBudget = state.budgets?.[month] ?? 0
+  const budgetPct = monthBudget > 0 ? Math.min(100, (spent / monthBudget) * 100) : 0
+  const overBudget = monthBudget > 0 && spent > monthBudget
+
+  const subscriptions = useMemo(() => detectSubscriptions(state.txns), [state.txns])
+  const subTotal = subscriptions.reduce((s, x) => s + x.amount, 0)
+  const insights = useMemo(
+    () => generateInsights(state, monthTxns, spent, income, month, monthBudget),
+    [state.txns, monthTxns, spent, income, month, monthBudget],
+  )
+  const health = useMemo(() => computeHealthScore(state, month), [state.txns, state.budgets, month])
+  const goalsTotal = (state.goals || []).reduce((s, g) => s + (g.saved || 0), 0)
+
+  useEffect(() => {
+    if (overBudget && enableAlerts && typeof Notification !== 'undefined') {
+      if (Notification.permission === 'granted') {
+        try {
+          const key = `expense-alert-${month}`
+          if (!localStorage.getItem(key)) {
+            new Notification('Over budget ⚠️', {
+              body: `You've spent ${fmtMoney(spent)} against a budget of ${fmtMoney(monthBudget)} this month.`,
+            })
+            localStorage.setItem(key, '1')
+          }
+        } catch {
+          /* ignore */
+        }
+      } else if (Notification.permission === 'default') {
+        Notification.requestPermission()
+      }
+    }
+  }, [overBudget, enableAlerts, month, spent, monthBudget])
+
+  function enableBudgetAlerts() {
+    setEnableAlerts(true)
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+    setImportMsg('Budget alerts enabled — you will get a notification when a month goes over budget.')
+  }
+
+  function addGoal() {
+    const name = goalName.trim()
+    const target = parseFloat(goalTarget)
+    if (!name || !target || target <= 0) return
+    setState((s) => ({
+      ...s,
+      goals: [...(s.goals || []), { id: uid(), name, target, saved: 0 }],
+    }))
+    setGoalName('')
+    setGoalTarget('')
+  }
+
+  function contributeGoal(id, amount) {
+    const amt = parseFloat(amount)
+    if (!amt || amt <= 0) return
+    setState((s) => ({
+      ...s,
+      goals: (s.goals || []).map((g) => (g.id === id ? { ...g, saved: (g.saved || 0) + amt } : g)),
+    }))
+  }
+
+  function removeGoal(id) {
+    setState((s) => ({ ...s, goals: (s.goals || []).filter((g) => g.id !== id) }))
+  }
+
   function addTxn(e) {
     e.preventDefault()
     const amount = parseFloat(form.amount)
@@ -394,6 +492,7 @@ function App() {
       amount: signed,
       category: form.category,
       method: form.method,
+      account: form.account || 'Bank',
       photo: form.photo || null,
       note: form.note.trim() || null,
     }
@@ -404,7 +503,7 @@ function App() {
         txns: exists ? s.txns.map((t) => (t.id === txn.id ? txn : t)) : [txn, ...s.txns],
       }
     })
-    setForm({ amount: '', type: 'expense', category: 'Food', desc: '', date: todayStr(), method: 'UPI', editingId: null, photo: null, note: '' })
+    setForm({ amount: '', type: 'expense', category: 'Food', desc: '', date: todayStr(), method: 'UPI', account: 'Bank', editingId: null, photo: null, note: '' })
   }
 
   function pickPhoto(e) {
@@ -428,6 +527,7 @@ function App() {
       desc: t.desc,
       date: t.date,
       method: t.method || 'UPI',
+      account: t.account || 'Bank',
       editingId: t.id,
       photo: t.photo || null,
       note: t.note || '',
@@ -452,9 +552,6 @@ function App() {
   function setBudget(value) {
     setState((s) => ({ ...s, budgets: { ...s.budgets, [month]: value } }))
   }
-  const monthBudget = state.budgets?.[month] ?? 0
-  const budgetPct = monthBudget > 0 ? Math.min(100, (spent / monthBudget) * 100) : 0
-  const overBudget = monthBudget > 0 && spent > monthBudget
 
   function addCustomCategory() {
     const name = newCategory.trim()
@@ -666,6 +763,7 @@ function App() {
         if (!cats.includes(p.category)) cats.push(p.category)
       }
       return {
+        ...s,
         txns: [
           ...fresh.map((p) => ({
             id: uid(),
@@ -674,12 +772,11 @@ function App() {
             amount: p.amount,
             category: p.category,
             method: p.method,
+            account: p.account || 'Bank',
           })),
           ...s.txns,
         ],
-        balances: s.balances,
         categories: cats,
-        people: s.people,
       }
     })
     const newMonths = monthsFromTxns(fresh)
@@ -709,6 +806,242 @@ function App() {
       setState(loadState())
       setImportMsg('')
     }
+  }
+
+  function startVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) {
+      setVoiceMsg('Voice entry is not supported in this browser — try Chrome or Edge.')
+      return
+    }
+    const rec = new SR()
+    rec.lang = 'en-IN'
+    rec.interimResults = false
+    rec.maxAlternatives = 1
+    setListening(true)
+    setVoiceMsg('Listening… say something like "spent 350 on zomato"')
+    rec.onresult = (e) => {
+      const raw = e.results[0][0].transcript
+      const isIncome = /\b(income|received|credited|got|salary|deposit|refund)\b/i.test(raw)
+      const num = raw.match(/\d[\d,]*\.?\d{0,2}/)
+      const amt = num ? parseFloat(num[0].replace(/,/g, '')) : ''
+      const desc = raw
+        .replace(/\b(spent|paid|gave|sent|used|income|received|credited|got|deposit|refund|on|for|rupees|rs)\b/gi, ' ')
+        .replace(/\d[\d,]*\.?\d{0,2}/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      setForm((f) => ({
+        ...f,
+        amount: String(amt),
+        type: isIncome ? 'income' : 'expense',
+        desc: desc.slice(0, 80),
+        category: categorize(desc, state.people, isIncome ? Math.abs(amt || 1) : -Math.abs(amt || 1)),
+      }))
+      setVoiceMsg(`Heard: "${raw}"`)
+      setListening(false)
+    }
+    rec.onerror = () => {
+      setVoiceMsg('Could not hear you — check the microphone permission.')
+      setListening(false)
+    }
+    rec.onend = () => setListening(false)
+    rec.start()
+  }
+
+  function parseReceiptText(text) {
+    const lines = text
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    let amount = null
+    for (const line of lines) {
+      const m = line.match(/(?:grand\s*total|total|amount|payable|due|net|balance)[\s:₹.]*\s*₹?\s*([\d,]+(?:\.\d{1,2})?)/i)
+      if (m) {
+        amount = parseFloat(m[1].replace(/,/g, ''))
+        break
+      }
+    }
+    if (amount == null) {
+      for (const line of [...lines].reverse()) {
+        if (/change|return|refund|discount|savings|cash|tendered|paid|balance\s*due\s*0/i.test(line)) continue
+        const m2 = line.match(/₹\s*([\d,]+(?:\.\d{1,2})?)/)
+        if (m2) {
+          amount = parseFloat(m2[1].replace(/,/g, ''))
+          break
+        }
+      }
+    }
+    if (amount == null) {
+      let best = null
+      for (const line of lines) {
+        for (const m of line.matchAll(/\b([\d,]+(?:\.\d{1,2})?)\b/g)) {
+          const v = parseFloat(m[1].replace(/,/g, ''))
+          if (v > 0 && (best == null || v > best)) best = v
+        }
+      }
+      amount = best
+    }
+    let date = todayStr()
+    const dm = text.match(/\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b/)
+    if (dm) {
+      const y = dm[3].length === 2 ? `20${dm[3]}` : dm[3]
+      const iso = `${y}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`
+      if (!Number.isNaN(new Date(iso + 'T00:00:00').getTime())) date = iso
+    } else {
+      const mon = text.match(/\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[.,]?\s+(\d{4})\b/i)
+      if (mon) {
+        const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+        const mm = String(months.indexOf(mon[2].toLowerCase()) + 1).padStart(2, '0')
+        date = `${mon[3]}-${mm}-${mon[1].padStart(2, '0')}`
+      }
+    }
+    const shop = lines
+      .filter(
+        (l) =>
+          l.length > 3 &&
+          l.length < 60 &&
+          !/\d{2,}[.,]\d{2}/.test(l) &&
+          !/\b\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}\b/.test(l) &&
+          !/\d{1,2}:\d{2}/.test(l) &&
+          !/(total|gst|vat|change|cash|card|upi|bill no|order|phone|gstin)/i.test(l),
+      )
+      .slice(0, 3)
+      .join(' ')
+    const desc = (shop || 'Receipt scan').slice(0, 60)
+    const category = categorize(desc, state.people, -Math.abs(amount || 1))
+    return {
+      date,
+      desc,
+      amount: amount != null ? Math.abs(amount) : '',
+      category: category === 'Other' ? 'Food' : category,
+      note: '',
+    }
+  }
+
+  async function handleReceiptScan(file) {
+    setBusy(true)
+    setImportMsg('Reading receipt with OCR...')
+    try {
+      const text = await ocrImage(file)
+      const parsed = parseReceiptText(text)
+      setScan({ ...parsed, id: null })
+      setImportMsg('')
+    } catch (err) {
+      setImportMsg(
+        `Failed to read receipt: ${err && err.message ? err.message : err}. Try a clearer, well-lit photo.`,
+      )
+    } finally {
+      setBusy(false)
+      if (scanRef.current) scanRef.current.value = ''
+    }
+  }
+
+  function confirmScan() {
+    if (!scan) return
+    const amount = parseFloat(scan.amount)
+    if (!amount || Number.isNaN(amount) || amount <= 0) {
+      setImportMsg('Enter a valid amount from the receipt before adding.')
+      return
+    }
+    const txn = {
+      id: uid(),
+      date: scan.date || todayStr(),
+      desc: (scan.desc || 'Receipt scan').trim(),
+      amount: -Math.abs(amount),
+      category: scan.category,
+      method: 'Cash',
+      account: 'Cash',
+      note: scan.note.trim() || null,
+    }
+    setState((s) => ({ ...s, txns: [txn, ...s.txns] }))
+    setScan(null)
+    setMonth(monthKey(txn.date))
+    setImportMsg(`Receipt added: ${fmtMoney(-txn.amount)} for ${txn.desc}.`)
+  }
+
+  function openSplit(t) {
+    setSplitTxn(t)
+    setSplitNames((t.split || []).join(', '))
+  }
+
+  function saveSplit() {
+    if (!splitTxn) return
+    const names = splitNames
+      .split(',')
+      .map((n) => n.trim())
+      .filter(Boolean)
+    setState((s) => ({
+      ...s,
+      txns: s.txns.map((t) => (t.id === splitTxn.id ? { ...t, split: names } : t)),
+    }))
+    setSplitTxn(null)
+  }
+
+  async function exportBackup() {
+    try {
+      const json = JSON.stringify(state)
+      let body = json
+      let name = 'expenses-backup.json'
+      if (backupPass) {
+        const enc = await encryptBackup(json, backupPass)
+        body = JSON.stringify(enc)
+        name = 'expenses-backup.enc'
+      }
+      const blob = new Blob([body], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      URL.revokeObjectURL(url)
+      setBackupMsg(backupPass ? 'Encrypted backup downloaded — keep your password safe, it cannot be recovered.' : 'Backup downloaded.')
+    } catch (err) {
+      setBackupMsg(`Backup failed: ${err && err.message ? err.message : err}`)
+    }
+  }
+
+  async function handleBackupImport(file) {
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const obj = JSON.parse(String(reader.result))
+        let data = obj
+        if (obj && obj.encrypted) {
+          if (!backupPass) {
+            setBackupMsg('This backup is encrypted — enter the password used when exporting.')
+            if (backupRef.current) backupRef.current.value = ''
+            return
+          }
+          data = await decryptBackup(obj, backupPass)
+        }
+        if (!data || !Array.isArray(data.txns)) {
+          setBackupMsg('This file is not a valid expense-tracker backup.')
+          return
+        }
+        if (!window.confirm(`Restore backup with ${data.txns.length} transactions? This replaces current data.`)) {
+          if (backupRef.current) backupRef.current.value = ''
+          return
+        }
+        setState({
+          txns: data.txns || [],
+          balances: data.balances || {},
+          categories: data.categories || [],
+          people: data.people || [],
+          budgets: data.budgets || {},
+          goals: data.goals || [],
+        })
+        setBackupMsg(`Backup restored — ${data.txns.length} transactions.`)
+        const ms = monthsFromTxns(data.txns || [])
+        if (ms.length > 0) setMonth(ms[ms.length - 1])
+      } catch (err) {
+        setBackupMsg(
+          `Could not import backup${err && /password|decrypt/i.test(String(err.message)) ? ' — wrong password?' : ''}.`,
+        )
+      } finally {
+        if (backupRef.current) backupRef.current.value = ''
+      }
+    }
+    reader.readAsText(file)
   }
 
   const delta = computedEnd - (actualEndNum ?? computedEnd)
@@ -819,6 +1152,22 @@ function App() {
           )}
         </div>
 
+        {accountsUsed.length > 1 && (
+          <div className="acct-filter no-print">
+            <span className="acct-label">Account:</span>
+            {accountsUsed.map((a) => (
+              <button
+                key={a}
+                className={accountFilter === a ? 'chip active' : 'chip'}
+                style={accountFilter === a ? { background: colorFor(a), borderColor: colorFor(a) } : {}}
+                onClick={() => setAccountFilter(a)}
+              >
+                {a === 'All' ? 'All' : a}
+              </button>
+            ))}
+          </div>
+        )}
+
         <section className="panel no-print">
           <div className="panel-head">
             <h2>Dashboard</h2>
@@ -865,6 +1214,13 @@ function App() {
               )}
             </div>
           </div>
+          {!enableAlerts && (
+            <div className="row" style={{ marginTop: 10 }}>
+              <button type="button" className="ghost bordered" onClick={enableBudgetAlerts}>
+                🔔 Enable budget alerts
+              </button>
+            </div>
+          )}
           {dailySpend.length > 0 && (
             <div className="trend-wrap">
               <span className="trend-title">Daily spending</span>
@@ -927,6 +1283,79 @@ function App() {
           )}
         </section>
 
+        {insights.length > 0 && (
+          <section className="panel no-print">
+            <div className="panel-head">
+              <h2>Insights</h2>
+              <span className="panel-sub">this month</span>
+            </div>
+            <div className="insights">
+              {insights.map((ins) => (
+                <div className="insight-card" key={ins.title}>
+                  <span className="insight-icon">{ins.icon}</span>
+                  <div>
+                    <span className="insight-title">{ins.title}</span>
+                    <span className="insight-body">{ins.body}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {health.score != null && (
+          <section className="panel no-print">
+            <div className="panel-head">
+              <h2>Financial Health</h2>
+              <span className="panel-sub">your money habits</span>
+            </div>
+            <div className="health-row">
+              <div
+                className="health-ring"
+                style={{ background: `conic-gradient(${health.score >= 70 ? 'var(--green)' : health.score >= 50 ? 'var(--amber)' : 'var(--red)'} ${health.score * 3.6}deg, var(--bg) 0deg)` }}
+              >
+                <div className="health-ring-inner">
+                  <span className="health-score">{health.score}</span>
+                  <span className="health-grade">{health.grade}</span>
+                </div>
+              </div>
+              <div className="health-tips">
+                <span className="health-tips-title">Score factors & tips</span>
+                {health.tips.map((tip) => (
+                  <span className="health-tip" key={tip}>
+                    • {tip}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {subscriptions.length > 0 && (
+          <section className="panel no-print">
+            <div className="panel-head">
+              <h2>Subscriptions</h2>
+              <span className="panel-sub">auto-detected renewals</span>
+            </div>
+            <div className="subs">
+              {subscriptions.map((s) => (
+                <div className="sub-row" key={s.name + s.amount}>
+                  <span className="sub-name">
+                    <span className="sub-emoji">{emojiFor(s.category)}</span> {s.name}
+                  </span>
+                  <span className="sub-meta">
+                    {s.amount}/mo · {s.times} payments over {s.months} months · last {s.last.slice(5)}
+                  </span>
+                  <span className="sub-amt">{fmtMoney(s.amount)}/mo</span>
+                </div>
+              ))}
+            </div>
+            <p className="hint" style={{ marginTop: 10 }}>
+              Total: <b>{fmtMoney(subTotal)}</b> per month on recurring charges — cancel anything you don't use.
+            </p>
+          </section>
+        )}
+
         <section className="panel" id="statement">
           <div className="panel-head">
             <h2>Month Statement</h2>
@@ -987,7 +1416,10 @@ function App() {
                             </span>
                           </td>
                           <td className="pb-person">{extractPersonName(t.desc) || '—'}</td>
-                          <td className="pb-method">{t.method || '—'}</td>
+                          <td className="pb-method">
+                            {t.method || '—'}
+                            {t.account && t.account !== 'Bank' ? ` · ${t.account}` : ''}
+                          </td>
                           <td className="num pb-spent">{t.amount < 0 ? fmtMoney(-t.amount) : ''}</td>
                           <td className="num pb-income">{t.amount > 0 ? fmtMoney(t.amount) : ''}</td>
                         </tr>
@@ -1058,6 +1490,12 @@ function App() {
                         {emojiFor(t.category)} {t.category}
                       </span>
                       {t.method && <span className="txn-method">{t.method}</span>}
+                      {t.account && <span className="txn-method">{t.account}</span>}
+                      {t.split && t.split.length > 0 && (
+                        <span className="txn-split">
+                          🤝 {t.split.join(', ')} · each {fmtMoney(Math.abs(t.amount) / (t.split.length + 1))}
+                        </span>
+                      )}
                     </span>
                   </button>
                   <span className={`txn-amt ${t.amount < 0 ? 'spent' : 'income'}`}>
@@ -1071,6 +1509,11 @@ function App() {
                       aria-label="View photo"
                     >
                       <img src={t.photo} alt="" />
+                    </button>
+                  )}
+                  {t.amount < 0 && (
+                    <button className="ghost split-btn" onClick={() => openSplit(t)} title="Split with friends">
+                      🤝
                     </button>
                   )}
                   <button className="ghost del" onClick={() => deleteTxn(t.id)} aria-label="Delete">
@@ -1178,6 +1621,87 @@ function App() {
         </section>
 
         <section className="panel no-print">
+          <div className="panel-head">
+            <h2>Goals & Savings</h2>
+            <span className="panel-sub">saved {fmtMoney(goalsTotal)}</span>
+          </div>
+          <div className="row">
+            <input
+              type="text"
+              placeholder="Goal name e.g. New phone"
+              value={goalName}
+              onChange={(e) => setGoalName(e.target.value)}
+            />
+            <input
+              type="number"
+              step="1"
+              min="1"
+              placeholder="Target ₹"
+              value={goalTarget}
+              onChange={(e) => setGoalTarget(e.target.value)}
+            />
+            <button type="button" className="ghost bordered" onClick={addGoal}>
+              + Goal
+            </button>
+          </div>
+          {(state.goals || []).length > 0 ? (
+            <div className="goals" style={{ marginTop: 12 }}>
+              {state.goals.map((g) => {
+                const pct = Math.min(100, ((g.saved || 0) / g.target) * 100)
+                const done = pct >= 100
+                return (
+                  <div className="goal" key={g.id}>
+                    <div className="goal-top">
+                      <span className="goal-name">
+                        {done ? '🎉 ' : '🎯 '}
+                        {g.name}
+                      </span>
+                      <span className={`goal-amt ${done ? 'income' : ''}`}>
+                        {fmtMoney(g.saved || 0)} / {fmtMoney(g.target)} · {Math.round(pct)}%
+                      </span>
+                    </div>
+                    <div className="goal-track">
+                      <div
+                        className="goal-fill"
+                        style={{ width: `${pct}%`, background: done ? 'var(--green)' : 'var(--primary)' }}
+                      />
+                    </div>
+                    <div className="row" style={{ marginTop: 6 }}>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        placeholder="Add ₹ to this goal"
+                        className="goal-add-input"
+                        id={`goal-add-${g.id}`}
+                      />
+                      <button
+                        type="button"
+                        className="ghost bordered"
+                        onClick={() => {
+                          const el = document.getElementById(`goal-add-${g.id}`)
+                          contributeGoal(g.id, el && el.value)
+                          if (el) el.value = ''
+                        }}
+                      >
+                        Add
+                      </button>
+                      <button type="button" className="ghost del" onClick={() => removeGoal(g.id)} aria-label="Remove goal">
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="hint" style={{ marginTop: 10 }}>
+              No goals yet — add one above and track savings toward it.
+            </p>
+          )}
+        </section>
+
+        <section className="panel no-print">
           <h2>{form.editingId ? 'Edit Transaction' : 'Add Transaction'}</h2>
           <form className="add-form" onSubmit={addTxn}>
             <div className="type-toggle">
@@ -1196,6 +1720,26 @@ function App() {
                 + Income
               </button>
             </div>
+            <div className="row">
+              <button
+                type="button"
+                className={listening ? 'ghost bordered voice-btn on' : 'ghost bordered voice-btn'}
+                onClick={startVoice}
+                title="Add by voice — say 'spent 350 on zomato'"
+              >
+                🎤 {listening ? 'Listening…' : 'Voice'}
+              </button>
+              <button
+                type="button"
+                className="ghost bordered"
+                onClick={() => scanRef.current && scanRef.current.click()}
+                title="Scan a bill photo — amount and date are read automatically"
+              >
+                🧾 Scan receipt
+              </button>
+              <input ref={scanRef} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files[0] && handleReceiptScan(e.target.files[0])} />
+            </div>
+            {voiceMsg && <p className="hint voice-msg">{voiceMsg}</p>}
             <div className="row">
               <input
                 type="number"
@@ -1218,6 +1762,17 @@ function App() {
                 {['UPI', 'Cash', 'Card', 'Transfer', 'Other'].map((m) => (
                   <option key={m} value={m}>
                     {m}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={form.account}
+                title="Account"
+                onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))}
+              >
+                {ACCOUNTS.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
                   </option>
                 ))}
               </select>
@@ -1321,6 +1876,29 @@ function App() {
               Delete all data
             </button>
           </div>
+          <div className="row wrap" style={{ marginTop: 8 }}>
+            <label className="btn-label">
+              Import backup
+              <input
+                ref={backupRef}
+                type="file"
+                accept=".json,.enc,application/json"
+                className="hidden"
+                onChange={(e) => e.target.files[0] && handleBackupImport(e.target.files[0])}
+              />
+            </label>
+            <button className="ghost bordered" onClick={exportBackup}>
+              Export backup
+            </button>
+            <input
+              type="password"
+              className="pass-input"
+              placeholder="Optional password (encrypts backup)"
+              value={backupPass}
+              onChange={(e) => setBackupPass(e.target.value)}
+            />
+          </div>
+          {backupMsg && <p className="hint">{backupMsg}</p>}
           {importMsg && (
             <p className={isFailMsg(importMsg) ? 'import-msg fail' : 'hint'}>{importMsg}</p>
           )}
@@ -1416,6 +1994,92 @@ function App() {
               </button>
             </div>
             <img src={photoView} alt="Transaction photo" className="photo-full" />
+          </div>
+        </div>
+      )}
+
+      {scan && (
+        <div className="modal-backdrop no-print" onClick={() => setScan(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>🧾 Receipt scan</h2>
+            <p className="hint">
+              OCR read the receipt. Check the amount and date below — everything else is filled in automatically.
+            </p>
+            <div className="row" style={{ marginTop: 10 }}>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Amount ₹"
+                value={scan.amount}
+                onChange={(e) => setScan((s) => ({ ...s, amount: e.target.value }))}
+              />
+              <input
+                type="date"
+                value={scan.date}
+                onChange={(e) => setScan((s) => ({ ...s, date: e.target.value }))}
+              />
+            </div>
+            <input
+              type="text"
+              placeholder="Description / shop"
+              value={scan.desc}
+              onChange={(e) => setScan((s) => ({ ...s, desc: e.target.value }))}
+            />
+            <input
+              type="text"
+              placeholder="Note (optional)"
+              value={scan.note}
+              onChange={(e) => setScan((s) => ({ ...s, note: e.target.value }))}
+            />
+            <select
+              className="cat-select"
+              style={{ width: '100%', marginTop: 10 }}
+              value={scan.category}
+              onChange={(e) => setScan((s) => ({ ...s, category: e.target.value }))}
+            >
+              {state.categories.map((c) => (
+                <option key={c} value={c}>
+                  {emojiFor(c)} {c}
+                </option>
+              ))}
+            </select>
+            <div className="modal-actions">
+              <button className="primary" onClick={confirmScan}>
+                Add transaction
+              </button>
+              <button className="ghost" onClick={() => setScan(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {splitTxn && (
+        <div className="modal-backdrop no-print" onClick={() => setSplitTxn(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>🤝 Split expense</h2>
+            <p className="hint">
+              {fmtMoney(Math.abs(splitTxn.amount))} for "{splitTxn.desc || splitTxn.category}". Enter the friends who
+              were part of it — each pays {fmtMoney(Math.abs(splitTxn.amount) / ((splitTxn.split || []).length + 1))}
+              {splitTxn.split && splitTxn.split.length > 0 ? '' : ' with you'}.
+            </p>
+            <input
+              type="text"
+              placeholder="Names, comma separated e.g. Rahul, Suresh"
+              value={splitNames}
+              onChange={(e) => setSplitNames(e.target.value)}
+              style={{ marginTop: 10 }}
+            />
+            <div className="modal-actions">
+              <button className="primary" onClick={saveSplit}>
+                Save split
+              </button>
+              <button className="ghost" onClick={() => setSplitTxn(null)}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
