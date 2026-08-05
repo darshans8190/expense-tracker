@@ -555,6 +555,54 @@ input:focus {
   white-space: nowrap;
 }
 
+.pv-person {
+  font-size: 11px;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.raw-box {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.raw-box summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+
+.raw-box pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  overflow-x: auto;
+  max-height: 200px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.paste-box textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  background: #fff;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.paste-box textarea:focus {
+  border-color: var(--primary);
+}
+
 .modal-actions {
   display: flex;
   gap: 8px;

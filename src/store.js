@@ -261,45 +261,78 @@ function pdfDateToISO(line) {
   return null
 }
 
+function cleanDesc(line) {
+  return line
+    .replace(/^\d{1,2}[./ -]\d{1,2}[./ -]\d{2,4}\b/, ' ')
+    .replace(/\b\d{1,2}[./ -]\d{1,2}[./ -]\d{4}\b/g, ' ')
+    .replace(/\b\d{1,2}\s+[A-Za-z]{3}\.?\s+\d{4}\b/g, ' ')
+    .replace(/\b(dr|debit|cr|credit)\b/gi, ' ')
+    .replace(/\s+[\d,]+\.\d{1,2}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80)
+}
+
+function extractAmounts(text) {
+  const amounts = []
+  const am = /([-+]?)\s*([\d,]+\.\d{1,2})/g
+  let x
+  while ((x = am.exec(text))) {
+    amounts.push({ sign: x[1], val: parseFloat(x[2].replace(/,/g, '')) })
+  }
+  return amounts
+}
+
+function amountSign(line, amounts) {
+  const lower = line.toLowerCase()
+  if (/\b(dr|debit)\b/.test(lower)) return -1
+  if (/\b(cr|credit)\b/.test(lower)) return 1
+  if (amounts[0].sign === '+' || amounts[0].sign === '-') return amounts[0].sign === '+' ? 1 : -1
+  return -1
+}
+
 export function parseBankPDF(text, people = []) {
   const out = []
+  let pendingDate = null
+  let pendingDesc = []
   for (const raw of text.split('\n')) {
     const line = raw.trim()
     if (!line) continue
     const dateInfo = pdfDateToISO(line)
-    if (!dateInfo) continue
 
-    const after = line.slice(dateInfo.end)
-    const amounts = []
-    const am = /([-+]?)\s*([\d,]+\.\d{1,2})/g
-    let x
-    while ((x = am.exec(after))) {
-      amounts.push({ sign: x[1], val: parseFloat(x[2].replace(/,/g, '')) })
+    if (dateInfo) {
+      const amounts = extractAmounts(line.slice(dateInfo.end))
+      if (amounts.length === 0) {
+        pendingDate = dateInfo.iso
+        pendingDesc = [cleanDesc(line)]
+        continue
+      }
+      pendingDate = null
+      pendingDesc = []
+      const amount = amountSign(line, amounts) * amounts[0].val
+      if (amount === 0) continue
+      let desc = cleanDesc(line)
+      if (!desc) desc = 'Bank transaction'
+      out.push({ date: dateInfo.iso, desc, amount, category: categorize(desc, people) })
+      continue
     }
-    if (amounts.length === 0) continue
 
-    const lower = line.toLowerCase()
-    let sign = null
-    if (/\b(dr|debit)\b/.test(lower)) sign = -1
-    else if (/\b(cr|credit)\b/.test(lower)) sign = 1
-    else if (amounts[0].sign === '+' || amounts[0].sign === '-') sign = amounts[0].sign === '+' ? 1 : -1
-    if (!sign) sign = -1
-
-    const amount = sign * amounts[0].val
+    if (!pendingDate) continue
+    const amounts = extractAmounts(line)
+    if (amounts.length === 0) {
+      if (/balance|closing|opening|page|total|continued/i.test(line)) continue
+      const part = cleanDesc(line)
+      if (part) pendingDesc.push(part)
+      continue
+    }
+    const amount = amountSign(line, amounts) * amounts[0].val
     if (amount === 0) continue
-
-    let desc = line
-      .replace(/^\d{1,2}[./ -]\d{1,2}[./ -]\d{2,4}\b/, ' ')
-      .replace(/\b\d{1,2}[./ -]\d{1,2}[./ -]\d{4}\b/g, ' ')
-      .replace(/\b\d{1,2}\s+[A-Za-z]{3}\.?\s+\d{4}\b/g, ' ')
-      .replace(/\b(dr|debit|cr|credit)\b/gi, ' ')
-      .replace(/\s+[\d,]+\.\d{1,2}/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 60)
-    if (!desc) desc = 'Bank transaction'
-
-    out.push({ date: dateInfo.iso, desc, amount, category: categorize(desc, people) })
+    const amountPart = cleanDesc(line.replace(/[-+]?\s*[\d,]+\.\d{1,2}/g, ' '))
+    const descParts = [...pendingDesc, amountPart].filter(Boolean)
+    const desc = (descParts.join(' ') || 'Bank transaction').slice(0, 80)
+    out.push({ date: pendingDate, desc, amount, category: categorize(desc, people) })
+    pendingDate = null
+    pendingDesc = []
   }
   return out
 }

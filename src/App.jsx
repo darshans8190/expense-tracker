@@ -137,6 +137,8 @@ function App() {
   const [personName, setPersonName] = useState('')
   const [personCat, setPersonCat] = useState('Food')
   const [copiedMsg, setCopiedMsg] = useState('')
+  const [rawText, setRawText] = useState('')
+  const [pastedText, setPastedText] = useState('')
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -319,8 +321,10 @@ function App() {
   async function handlePdfImport(file) {
     setBusy(true)
     setImportMsg('Reading PDF...')
+    setRawText('')
     try {
       const { text, pages } = await readPdf(file)
+      setRawText(text)
       let parsed = parseBankPDF(text, state.people)
       if (parsed.length < 3) {
         setImportMsg(
@@ -338,17 +342,60 @@ function App() {
         }
       }
       if (parsed.length === 0) {
-        setImportMsg('Could not find transactions in this PDF, even with OCR. The layout may be unusual — try the CSV option.')
+        setImportMsg(
+          'Could not find transactions in this PDF. Click "See what the reader found" below, or paste the statement text into the box below as a fallback.',
+        )
       } else {
         setPreview(parsed)
         setImportMsg('')
       }
     } catch (err) {
-      setImportMsg(`Failed to read PDF: ${err.message}`)
+      if (err && err.name === 'PasswordException') {
+        setImportMsg(
+          'This PDF is password-protected. Open it in Preview, then File > Export as PDF (without password) and upload that one.',
+        )
+      } else if (err && /decrypt|password/i.test(String(err.message))) {
+        setImportMsg(
+          'This PDF is encrypted/password-protected. Export it without a password (Preview > File > Export) and upload again.',
+        )
+      } else {
+        setImportMsg(
+          `Failed to read PDF: ${err && err.message ? err.message : err}. Try pasting the statement text below instead.`,
+        )
+      }
     } finally {
       setBusy(false)
       if (fileRef.current) fileRef.current.value = ''
     }
+  }
+
+  function handlePasteParse() {
+    const text = pastedText.trim()
+    if (!text) return
+    const parsed = parseBankPDF(text, state.people)
+    if (parsed.length === 0) {
+      setImportMsg('Could not find transactions in the pasted text. It needs dates and amounts.')
+      return
+    }
+    setPreview(parsed)
+    setImportMsg('')
+  }
+
+  function addPersonFromPreview(p) {
+    const m = String(p.desc).match(/UPI\/[^/@\s]+/i)
+    const name = (m ? m[0].replace(/^UPI\//i, '') : p.desc).slice(0, 30).trim()
+    if (!name) return
+    setState((s) => {
+      const exists = s.people.some((x) => x.name.toLowerCase() === name.toLowerCase())
+      return exists ? s : { ...s, people: [...s.people, { name, category: 'Other' }] }
+    })
+    setPreview((prev) =>
+      prev.map((x) =>
+        x === p ? { ...x, category: categorize(x.desc, [...state.people, { name, category: 'Other' }]) } : x,
+      ),
+    )
+    setCopiedMsg(`Added "${name}" to People I Pay — matching transfers will be tagged.`)
+    setTimeout(() => setCopiedMsg(''), 5000)
   }
 
   function importPreview() {
@@ -755,6 +802,26 @@ function App() {
             "Other". CSV should have columns: Date, Description, Amount, Category (optional). All data stays in your
             browser.
           </p>
+          {rawText && (
+            <details className="raw-box">
+              <summary>See what the reader found in your PDF ({rawText.split('\n').filter(Boolean).length} lines)</summary>
+              <pre>{rawText.slice(0, 4000)}</pre>
+            </details>
+          )}
+          <div className="paste-box">
+            <p className="hint" style={{ marginTop: 10 }}>
+              Nothing read? Copy the text from your statement (even from the bank app) and paste it here:
+            </p>
+            <textarea
+              rows={4}
+              placeholder="Paste statement text, e.g.  05/02/2026 SUPRIYA UPI 500.00  08/02/2026 SWIGGY 452.00"
+              value={pastedText}
+              onChange={(e) => setPastedText(e.target.value)}
+            />
+            <button type="button" className="ghost bordered" onClick={handlePasteParse}>
+              Parse pasted text
+            </button>
+          </div>
         </section>
       </main>
 
@@ -783,9 +850,15 @@ function App() {
                     {p.category}
                   </span>
                   <span className={`pv-amt ${p.amount < 0 ? 'spent' : 'income'}`}>{fmtMoney(p.amount)}</span>
+                  {p.amount < 0 && p.category === 'Other' && (
+                    <button type="button" className="ghost pv-person" onClick={() => addPersonFromPreview(p)} title="Add this name to People I Pay">
+                      + person
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
+            {copiedMsg && <p className="hint">{copiedMsg}</p>}
             <div className="modal-actions">
               <button className="primary" onClick={importPreview}>
                 Import {preview.length} transactions
