@@ -320,6 +320,74 @@ h1 {
   text-align: center;
 }
 
+.passbook {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.passbook th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.passbook th.num {
+  text-align: right;
+}
+
+.passbook td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.passbook tfoot td {
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+  font-weight: 700;
+}
+
+.passbook .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.passbook .pb-date {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.passbook .pb-desc {
+  font-weight: 500;
+}
+
+.passbook .pb-spent {
+  color: #dc2626;
+}
+
+.passbook .pb-income {
+  color: #16a34a;
+}
+
+.passbook .pb-total {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.stmt-group .stmt-head {
+  margin-bottom: 4px;
+}
+
 .people-table {
   width: 100%;
   border-collapse: collapse;

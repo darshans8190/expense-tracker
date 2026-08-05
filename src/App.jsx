@@ -214,23 +214,10 @@ function App() {
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }, [monthTxns])
 
-  const statementGroups = useMemo(() => {
-    const groups = new Map()
-    for (const t of monthTxns) {
-      if (t.amount >= 0) continue
-      if (!groups.has(t.category)) groups.set(t.category, [])
-      groups.get(t.category).push(t)
-    }
-    return [...groups.entries()]
-      .map(([cat, txns]) => ({
-        cat,
-        txns,
-        total: txns.reduce((s, t) => s - t.amount, 0),
-      }))
-      .sort((a, b) => b.total - a.total)
-  }, [monthTxns])
-
-  const incomeTxns = useMemo(() => monthTxns.filter((t) => t.amount > 0), [monthTxns])
+  const statementTxns = useMemo(
+    () => [...monthTxns].sort((a, b) => (a.date > b.date ? 1 : -1)),
+    [monthTxns],
+  )
 
   const peopleMonth = useMemo(
     () =>
@@ -369,18 +356,10 @@ function App() {
       `Spent: ${fmtMoney(spent)} | Income: ${fmtMoney(income)} | Net: ${fmtMoney(income - spent)}`,
       '',
     ]
-    for (const g of statementGroups) {
-      lines.push(`${g.cat} - ${fmtMoney(g.total)} (${g.txns.length} txns)`)
-      for (const t of g.txns) {
-        lines.push(`  ${t.date} ${t.desc || t.category} ${fmtMoney(t.amount)}`)
-      }
-      lines.push('')
-    }
-    if (incomeTxns.length > 0) {
-      lines.push(`Income - ${fmtMoney(income)} (${incomeTxns.length} txns)`)
-      for (const t of incomeTxns) {
-        lines.push(`  ${t.date} ${t.desc || t.category} ${fmtMoney(t.amount)}`)
-      }
+    for (const t of statementTxns) {
+      lines.push(
+        `${t.date} ${t.desc || t.category} ${t.amount < 0 ? 'Spent' : 'Deposited'} ${fmtMoney(Math.abs(t.amount))}`,
+      )
     }
     if (peopleMonth.length > 0) {
       const pSent = peopleMonth.reduce((s, g) => s + g.sent, 0)
@@ -813,57 +792,52 @@ function App() {
             </span>
           </div>
           {copiedMsg && <p className="hint">{copiedMsg}</p>}
-          {statementGroups.length === 0 && incomeTxns.length === 0 ? (
+          {statementTxns.length === 0 && peopleMonth.length === 0 ? (
             <p className="empty">Nothing recorded for {formatMonth(month)} yet.</p>
           ) : (
             <>
-              {statementGroups.map((g) => (
-                <div className="stmt-group" key={g.cat}>
-                  <div className="stmt-head">
-                    <span className="bar-cat">
-                      <span className="dot" style={{ background: colorFor(g.cat) }} />
-                      {g.cat}
-                    </span>
-                    <span className="stmt-total">
-                      {fmtMoney(g.total)}
-                      <span className="bar-pct">
-                        {spent > 0 ? ` ${Math.round((g.total / spent) * 100)}%` : ''}
-                      </span>
-                    </span>
-                  </div>
-                  <ul className="stmt-txns">
-                    {g.txns.map((t) => (
-                      <li key={t.id}>
-                        <span className="txn-date">{t.date}</span>
-                        <span className="pv-desc">{t.desc || t.category}{t.method ? <em className="txn-method"> · {t.method}</em> : null}</span>
-                        <span className="pv-amt spent">{fmtMoney(t.amount)}</span>
-                      </li>
+              {statementTxns.length > 0 && (
+                <table className="passbook">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Description</th>
+                      <th className="num">Spent</th>
+                      <th className="num">Deposited</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statementTxns.map((t) => (
+                      <tr key={t.id}>
+                        <td className="pb-date">{t.date}</td>
+                        <td className="pb-desc">
+                          {t.desc || t.category}
+                          <span
+                            className="txn-cat"
+                            style={{ color: colorFor(t.category), borderColor: colorFor(t.category) }}
+                          >
+                            {t.category}
+                          </span>
+                          {t.method && <span className="txn-method">{t.method}</span>}
+                        </td>
+                        <td className="num pb-spent">{t.amount < 0 ? fmtMoney(-t.amount) : ''}</td>
+                        <td className="num pb-income">{t.amount > 0 ? fmtMoney(t.amount) : ''}</td>
+                      </tr>
                     ))}
-                  </ul>
-                </div>
-              ))}
-              {incomeTxns.length > 0 && (
-                <div className="stmt-group">
-                  <div className="stmt-head">
-                    <span className="bar-cat">
-                      <span className="dot" style={{ background: '#22c55e' }} />
-                      Income
-                    </span>
-                    <span className="stmt-total income">{fmtMoney(income)}</span>
-                  </div>
-                  <ul className="stmt-txns">
-                    {incomeTxns.map((t) => (
-                      <li key={t.id}>
-                        <span className="txn-date">{t.date}</span>
-                        <span className="pv-desc">{t.desc || t.category}</span>
-                        <span className="pv-amt income">{fmtMoney(t.amount)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan="2" className="pb-total">
+                        Total
+                      </td>
+                      <td className="num pb-spent">{fmtMoney(spent)}</td>
+                      <td className="num pb-income">{fmtMoney(income)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
               )}
               {peopleMonth.length > 0 && (
-                <div className="stmt-group">
+                <div className="stmt-group" style={{ marginTop: 18 }}>
                   <div className="stmt-head">
                     <span className="bar-cat">
                       <span className="dot" style={{ background: '#f59e0b' }} />
