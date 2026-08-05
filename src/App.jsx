@@ -249,6 +249,9 @@ function App() {
         .sort((a, b) => b.sent + b.received - (a.sent + a.received)),
     [state.people, monthTxns],
   )
+  const pSent = peopleMonth.reduce((s, g) => s + g.sent, 0)
+  const pRecv = peopleMonth.reduce((s, g) => s + g.received, 0)
+  const pMax = Math.max(...peopleMonth.map((g) => g.sent + g.received), 1)
 
   const peopleSummary = useMemo(() => {
     let sent = 0
@@ -379,9 +382,7 @@ function App() {
       )
     }
     if (peopleMonth.length > 0) {
-      const pSent = peopleMonth.reduce((s, g) => s + g.sent, 0)
-      const pRecv = peopleMonth.reduce((s, g) => s + g.received, 0)
-      lines.push(`People - sent ${fmtMoney(pSent)} | received ${fmtMoney(pRecv)}`)
+      lines.push(`People - sent ${fmtMoney(pSent)} | received ${fmtMoney(pRecv)} | net ${fmtMoney(pRecv - pSent)}`)
       lines.push('  Name, Sent, Received')
       for (const g of peopleMonth) {
         lines.push(`  ${g.name}, ${fmtMoney(g.sent)}, ${fmtMoney(g.received)}`)
@@ -825,28 +826,28 @@ function App() {
                       People
                     </span>
                     <span className="stmt-total">
-                      ↑ {fmtMoney(peopleMonth.reduce((s, g) => s + g.sent, 0))} sent · ↓{' '}
-                      {fmtMoney(peopleMonth.reduce((s, g) => s + g.received, 0))} received
+                      Total sent <b className="pts">↑ {fmtMoney(pSent)}</b> · Total received{' '}
+                      <b className="ptr">↓ {fmtMoney(pRecv)}</b> · Net{' '}
+                      <b className={pRecv - pSent < 0 ? 'pts' : 'ptr'}>{fmtMoney(pRecv - pSent)}</b>
                     </span>
                   </div>
-                  <table className="people-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th className="num">Sent</th>
-                        <th className="num">Received</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {peopleMonth.map((g) => (
-                        <tr key={g.name}>
-                          <td className="pt-name">{g.name}</td>
-                          <td className="num sent">{fmtMoney(g.sent)}</td>
-                          <td className="num income">{fmtMoney(g.received)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="people-stmt">
+                    {peopleMonth.map((g) => (
+                      <div className="pstmt-row" key={g.name}>
+                        <div className="pstmt-head">
+                          <span className="pstmt-name">{g.name}</span>
+                          <span className="pstmt-nums">
+                            <span className="ps">sent {fmtMoney(g.sent)}</span>
+                            <span className="pr">received {fmtMoney(g.received)}</span>
+                          </span>
+                        </div>
+                        <div className="pstmt-track">
+                          <div className="pstmt-sent" style={{ width: `${(g.sent / pMax) * 100}%` }} />
+                          <div className="pstmt-recv" style={{ width: `${(g.received / pMax) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </>

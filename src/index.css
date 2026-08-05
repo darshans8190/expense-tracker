@@ -579,6 +579,66 @@ h1::before {
   margin-bottom: 4px;
 }
 
+.people-stmt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.pstmt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.pstmt-name {
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.pstmt-nums {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pstmt-nums .ps {
+  color: var(--red);
+  font-weight: 700;
+}
+
+.pstmt-nums .pr {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.pstmt-track {
+  display: flex;
+  gap: 3px;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.pstmt-sent {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f97066, #e5484d);
+  min-width: 0;
+}
+
+.pstmt-recv {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #34c77b, #2f9e63);
+  min-width: 0;
+}
+
 .people-table {
   width: 100%;
   border-collapse: collapse;
