@@ -347,6 +347,21 @@ h1 {
   border-bottom: none;
 }
 
+.people-table tfoot td {
+  border-top: 2px solid var(--border);
+  font-weight: 700;
+}
+
+.people-table .pt-del {
+  width: 34px;
+  text-align: right;
+}
+
+.people-table .pt-del .del {
+  padding: 2px 7px;
+  font-size: 12px;
+}
+
 .people-table .num {
   text-align: right;
   white-space: nowrap;

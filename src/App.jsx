@@ -930,10 +930,6 @@ function App() {
 
         <section className="panel no-print">
           <h2>People</h2>
-          <div className="people-summary">
-            <span>Total sent <b className="pts">↑ {fmtMoney(peopleSummary.sent)}</b></span>
-            <span>Total received <b className="ptr">↓ {fmtMoney(peopleSummary.received)}</b></span>
-          </div>
           <p className="hint" style={{ marginTop: 8 }}>
             Add a name once — all their payments and credits add up here automatically. Names come from statements
             like UPI/GOWTHAM, UPIAB/…/GOWTHAM/…, or UPI/RAHUL@YBL.
@@ -969,30 +965,56 @@ function App() {
               + Add
             </button>
           </div>
-          {(state.people || []).length > 0 && (
-            <ul className="people-list">
-              {[...state.people]
-                .sort((a, b) => {
-                  const ta = personTotals(a.name, state.txns)
-                  const tb = personTotals(b.name, state.txns)
-                  return tb.sent + tb.received - (ta.sent + ta.received)
-                })
-                .map((p) => {
-                  const totals = personTotals(p.name, state.txns)
-                  return (
-                    <li key={p.name}>
-                      <span className="people-name">{p.name}</span>
-                      <span className="people-totals">
-                        <span className="pts">↑ {fmtMoney(totals.sent)}</span>
-                        <span className="ptr">↓ {fmtMoney(totals.received)}</span>
-                      </span>
-                      <button className="ghost del" onClick={() => removePerson(p.name)} aria-label="Remove">
-                        ✕
-                      </button>
-                    </li>
-                  )
-                })}
-            </ul>
+          {(state.people || []).length > 0 ? (
+            <table className="people-table" style={{ marginTop: 10 }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th className="num">Paid</th>
+                  <th className="num">Received</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...state.people]
+                  .sort((a, b) => {
+                    const ta = personTotals(a.name, state.txns)
+                    const tb = personTotals(b.name, state.txns)
+                    return tb.sent + tb.received - (ta.sent + ta.received)
+                  })
+                  .map((p) => {
+                    const totals = personTotals(p.name, state.txns)
+                    return (
+                      <tr key={p.name}>
+                        <td className="pt-name">{p.name}</td>
+                        <td className="num sent">{fmtMoney(totals.sent)}</td>
+                        <td className="num income">{fmtMoney(totals.received)}</td>
+                        <td className="pt-del">
+                          <button
+                            className="ghost del"
+                            onClick={() => removePerson(p.name)}
+                            aria-label="Remove"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="pt-name">Total</td>
+                  <td className="num sent">{fmtMoney(peopleSummary.sent)}</td>
+                  <td className="num income">{fmtMoney(peopleSummary.received)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          ) : (
+            <p className="hint" style={{ marginTop: 10 }}>
+              No people yet — add a name above and their totals will show here.
+            </p>
           )}
           <div className="row" style={{ marginTop: 8 }}>
             <button type="button" className="ghost bordered" onClick={recategorizeOthers}>
