@@ -266,6 +266,30 @@ h1 {
   white-space: nowrap;
 }
 
+.people-totals {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pts {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.ptr {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.pts.none {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .txn-method {
   font-style: normal;
   font-size: 11px;

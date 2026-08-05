@@ -69,8 +69,47 @@ function ruleMatches(rule, lower) {
   return false
 }
 
-export function categorize(desc, people = [], amount = -1) {
-  const lower = String(desc || '').toLowerCase()
+export function extractPersonName(desc) {
+  const s = String(desc || '')
+  const upi = s.match(/UPIAR\//i)
+  if (upi) {
+    const parts = s
+      .slice(upi.index + 6)
+      .split('/')
+      .map((x) => x.trim())
+      .filter(Boolean)
+    if (parts.length >= 2) return parts[1]
+    if (parts.length === 1) return parts[0]
+  }
+  const m = s.match(/UPI\/([^/@\s]+)/i)
+  if (m) return m[1]
+  return null
+}
+
+export function cleanUPIDesc(desc) {
+  const s = String(desc || '')
+  if (!/UPIAR\//i.test(s)) return s
+  const name = extractPersonName(s)
+  return name ? `UPI/${name}` : s
+}
+
+export function personTotals(name, txns) {
+  const lower = String(name || '').toLowerCase()
+  if (!lower) return { sent: 0, received: 0 }
+  const variants = new Set([lower, lower.replace(/\s+/g, '')])
+  let sent = 0
+  let received = 0
+  for (const t of txns) {
+    const d = String(t.desc || '').toLowerCase()
+    const matched = [...variants].some((v) => v && d.includes(v))
+    if (!matched) continue
+    if (t.amount < 0) sent += -t.amount
+    else if (t.amount > 0) received += t.amount
+  }
+  return { sent, received }
+}
+
+export function categorize(desc, people = [], amount = -1) {  const lower = String(desc || '').toLowerCase()
   if (!lower) return 'Other'
   const isExpense = amount < 0
   const personRules = people
@@ -222,7 +261,7 @@ export function parseBankCSV(text, people = []) {
     if (!date || !amountRaw) continue
     const num = parseFloat(String(amountRaw).replace(/[₹,\s]/g, ''))
     if (Number.isNaN(num)) continue
-    const desc = (descRaw || '').trim()
+    const desc = cleanUPIDesc((descRaw || '').trim())
     const cat = (catRaw || '').trim() || categorize(desc, people, num)
     const method = (methodRaw || '').trim()
     let iso = date
@@ -281,15 +320,17 @@ function pdfDateToISO(line) {
 }
 
 function cleanDesc(line) {
-  return line
-    .replace(/^\d{1,2}[./ -]\d{1,2}[./ -]\d{2,4}\b/, ' ')
-    .replace(/\b\d{1,2}[./ -]\d{1,2}[./ -]\d{4}\b/g, ' ')
-    .replace(/\b\d{1,2}\s+[A-Za-z]{3}\.?\s+\d{4}\b/g, ' ')
-    .replace(/\b(dr|debit|cr|credit)\b/gi, ' ')
-    .replace(/\s+[\d,]+\.\d{1,2}/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 80)
+  return cleanUPIDesc(
+    line
+      .replace(/^\d{1,2}[./ -]\d{1,2}[./ -]\d{2,4}\b/, ' ')
+      .replace(/\b\d{1,2}[./ -]\d{1,2}[./ -]\d{4}\b/g, ' ')
+      .replace(/\b\d{1,2}\s+[A-Za-z]{3}\.?\s+\d{4}\b/g, ' ')
+      .replace(/\b(dr|debit|cr|credit)\b/gi, ' ')
+      .replace(/\s+[\d,]+\.\d{1,2}/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80),
+  )
 }
 
 function extractAmounts(text) {

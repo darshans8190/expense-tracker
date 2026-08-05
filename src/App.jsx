@@ -11,6 +11,8 @@ import {
   parseBankCSV,
   parseBankPDF,
   categorize,
+  extractPersonName,
+  personTotals,
   exportCSV,
   CATEGORY_COLORS,
 } from './store.js'
@@ -386,8 +388,7 @@ function App() {
   }
 
   function addPersonFromPreview(p) {
-    const m = String(p.desc).match(/UPI\/[^/@\s]+/i)
-    const name = (m ? m[0].replace(/^UPI\//i, '') : p.desc).slice(0, 30).trim()
+    const name = (extractPersonName(p.desc) || p.desc).slice(0, 30).trim()
     if (!name) return
     const direction = p.amount < 0 ? 'sent' : 'received'
     setState((s) => {
@@ -789,23 +790,31 @@ function App() {
           </div>
           {(state.people || []).length > 0 && (
             <ul className="people-list">
-              {state.people.map((p) => (
-                <li key={p.name}>
-                  <span className="people-name">{p.name}</span>
-                  <span className="people-dir">
-                    {p.direction === 'received' ? '← they pay me' : p.direction === 'sent' ? '→ I send to them' : '⇄ both ways'}
-                  </span>
-                  <span
-                    className="txn-cat"
-                    style={{ color: colorFor(p.category), borderColor: colorFor(p.category) }}
-                  >
-                    {p.category}
-                  </span>
-                  <button className="ghost del" onClick={() => removePerson(p.name)} aria-label="Remove">
-                    ✕
-                  </button>
-                </li>
-              ))}
+              {state.people.map((p) => {
+                const totals = personTotals(p.name, state.txns)
+                return (
+                  <li key={p.name}>
+                    <span className="people-name">{p.name}</span>
+                    <span className="people-dir">
+                      {p.direction === 'received' ? '← they pay me' : p.direction === 'sent' ? '→ I send to them' : '⇄ both ways'}
+                    </span>
+                    <span className="people-totals">
+                      {totals.sent > 0 && <span className="pts">↑ {fmtMoney(totals.sent)} sent</span>}
+                      {totals.received > 0 && <span className="ptr">↓ {fmtMoney(totals.received)} received</span>}
+                      {totals.sent === 0 && totals.received === 0 && <span className="pts none">no payments yet</span>}
+                    </span>
+                    <span
+                      className="txn-cat"
+                      style={{ color: colorFor(p.category), borderColor: colorFor(p.category) }}
+                    >
+                      {p.category}
+                    </span>
+                    <button className="ghost del" onClick={() => removePerson(p.name)} aria-label="Remove">
+                      ✕
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
           <div className="row" style={{ marginTop: 8 }}>
@@ -890,7 +899,7 @@ function App() {
                     {p.category}
                   </span>
                   <span className={`pv-amt ${p.amount < 0 ? 'spent' : 'income'}`}>{fmtMoney(p.amount)}</span>
-                  {p.category === 'Other' && (
+                  {p.category === 'Other' && extractPersonName(p.desc) && (
                     <button
                       type="button"
                       className="ghost pv-person"
