@@ -372,7 +372,9 @@ function pad2(n) {
   return String(n).padStart(2, '0')
 }
 
-function pdfDateToISO(line) {
+function pdfDateToISO(line, refYear) {
+  const now = new Date()
+  const y = refYear || now.getFullYear()
   let m = line.match(/^(\d{1,2})[./ -](\d{1,2})[./ -](\d{4})\b/)
   if (m) {
     return { iso: `${m[3]}-${pad2(m[2])}-${pad2(m[1])}`, end: m[0].length }
@@ -381,11 +383,27 @@ function pdfDateToISO(line) {
   if (m) {
     return { iso: `20${m[3]}-${pad2(m[2])}-${pad2(m[1])}`, end: m[0].length }
   }
-  m = line.match(/^(\d{1,2})\s+([A-Za-z]{3})\.?\s+(\d{4})\b/)
+  m = line.match(/^(\d{1,2})[./ -]([A-Za-z]{3})\.?\s+(\d{4})\b/)
   if (m) {
     const mm = PDF_MONTHS[m[2].toLowerCase()]
     if (mm) {
       return { iso: `${m[3]}-${pad2(mm)}-${pad2(m[1])}`, end: m[0].length }
+    }
+  }
+  m = line.match(/^(\d{1,2})[./ -]([A-Za-z]{3})\.?\b/)
+  if (m) {
+    const mm = PDF_MONTHS[m[2].toLowerCase()]
+    if (mm) {
+      const yy = mm > now.getMonth() + 1 ? y - 1 : y
+      return { iso: `${yy}-${pad2(mm)}-${pad2(m[1])}`, end: m[0].length }
+    }
+  }
+  m = line.match(/^([A-Za-z]{3})\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?\b/)
+  if (m) {
+    const mm = PDF_MONTHS[m[1].toLowerCase()]
+    if (mm) {
+      const yy = m[3] ? m[3] : mm > now.getMonth() + 1 ? y - 1 : y
+      return { iso: `${yy}-${pad2(mm)}-${pad2(m[2])}`, end: m[0].length }
     }
   }
   m = line.match(/\b(\d{1,2})[./ -](\d{1,2})[./ -](\d{4})\b/)
@@ -435,12 +453,13 @@ export function parseBankPDF(text, people = []) {
   const out = []
   let pendingDate = null
   let pendingDesc = []
+  let refYear = new Date().getFullYear()
   for (const raw of text.split('\n')) {
     const line = raw.trim()
     if (!line) continue
-    const dateInfo = pdfDateToISO(line)
-
+    const dateInfo = pdfDateToISO(line, refYear)
     if (dateInfo) {
+      refYear = parseInt(dateInfo.iso.slice(0, 4), 10)
       const amounts = extractAmounts(line.slice(dateInfo.end))
       if (amounts.length === 0) {
         pendingDate = dateInfo.iso
