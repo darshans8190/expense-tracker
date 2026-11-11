@@ -25,7 +25,25 @@ import {
   computeHealthScore,
   encryptBackup,
   decryptBackup,
+  spendByName,
+  spenderName,
+  accountSummaries,
+  advanceDate,
+  postDueRecurring,
+  mergeStates,
 } from './store.js'
+import {
+  isCloudConfigured,
+  watchAuth,
+  signUpWithEmail,
+  signInWithEmail,
+  signInWithGoogle,
+  signOutUser,
+  loadCloudState,
+  saveCloudState,
+  cloudErrorHint,
+  CLOUD_RULES,
+} from './cloud.js'
 
 async function readPdf(file) {
   const pdfjsLib = await import('pdfjs-dist')
@@ -151,6 +169,32 @@ function colorFor(category) {
   return `hsl(${h}, 55%, 45%)`
 }
 
+const ACCOUNT_COLORS = {
+  Bank: '#5b5bd6',
+  Cash: '#22c55e',
+  UPI: '#0ea5e9',
+  Card: '#a855f7',
+  Other: '#64748b',
+}
+
+function accountColor(account) {
+  if (ACCOUNT_COLORS[account]) return ACCOUNT_COLORS[account]
+  let h = 0
+  for (const ch of String(account || '')) h = (h * 31 + ch.charCodeAt(0)) % 360
+  return `hsl(${h}, 60%, 45%)`
+}
+
+function formatClock(date = new Date()) {
+  return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—'
+  const d = new Date(`${iso}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 function fmtShort(v) {
   if (v >= 100000) return `₹${(v / 100000).toFixed(1).replace(/\.0$/, '')}L`
   if (v >= 1000) return `₹${(v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, '')}k`
@@ -183,11 +227,13 @@ function resizePhoto(file, maxDim = 900, quality = 0.72) {
 function Donut({ slices, size = 148, centerLabel }) {
   const total = slices.reduce((s, x) => s + x.value, 0)
   if (total <= 0) return null
-  let acc = 0
-  const stops = slices.map((s) => {
-    const from = (acc / total) * 360
-    acc += s.value
-    const to = (acc / total) * 360
+  const cumulative = slices.reduce((arr, s) => {
+    arr.push((arr[arr.length - 1] || 0) + s.value)
+    return arr
+  }, [])
+  const stops = slices.map((s, i) => {
+    const from = ((i === 0 ? 0 : cumulative[i - 1]) / total) * 360
+    const to = (cumulative[i] / total) * 360
     return `${s.color} ${from}% ${to}%`
   })
   return (
@@ -284,10 +330,43 @@ function App() {
   const [copiedMsg, setCopiedMsg] = useState('')
   const [rawText, setRawText] = useState('')
   const [pastedText, setPastedText] = useState('')
+  const [search, setSearch] = useState('')
+  const [txnCatFilter, setTxnCatFilter] = useState('All')
+  const [txnTypeFilter, setTxnTypeFilter] = useState('All')
+  const [txnScope, setTxnScope] = useState('month')
+  const [spendScope, setSpendScope] = useState('month')
+  const [newAccount, setNewAccount] = useState('')
+  const [recForm, setRecForm] = useState({
+    desc: '',
+    amount: '',
+    type: 'expense',
+    category: 'Bills',
+    method: 'UPI',
+    account: 'Bank',
+    freq: 'monthly',
+    nextDate: todayStr(),
+  })
+  const [cloudOpen, setCloudOpen] = useState(false)
+  const [authMode, setAuthMode] = useState('signin')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authMsg, setAuthMsg] = useState('')
+  const [user, setUser] = useState(null)
+  const [authReady, setAuthReady] = useState(() => !isCloudConfigured())
+  const [syncStatus, setSyncStatus] = useState('')
+  const [syncTime, setSyncTime] = useState('')
   const fileRef = useRef(null)
   const photoRef = useRef(null)
   const scanRef = useRef(null)
   const backupRef = useRef(null)
+  const stateRef = useRef(state)
+  const lastSyncedRef = useRef('')
+  const cloudPausedRef = useRef(false)
+  const cloudBusyRef = useRef(false)
+  const lastUidRef = useRef(null)
+  const recurringRunRef = useRef(false)
+  const saveTimerRef = useRef(null)
 
   const [dark, setDark] = useState(() => {
     try {
@@ -307,14 +386,126 @@ function App() {
   }, [dark])
 
   useEffect(() => {
+    stateRef.current = state
     try {
       saveState(state)
     } catch {
-      setImportMsg(
-        'Could not save — your browser storage is full. Try deleting photos from old transactions or removing old data.',
+      queueMicrotask(() =>
+        setImportMsg(
+          'Could not save — your browser storage is full. Try deleting photos from old transactions or removing old data.',
+        ),
       )
     }
   }, [state])
+
+  useEffect(() => {
+    if (recurringRunRef.current) return
+    recurringRunRef.current = true
+    const { state: next, added } = postDueRecurring(stateRef.current)
+    if (added.length > 0) {
+      setState(next)
+      setImportMsg(
+        `Auto-added ${added.length} recurring transaction${added.length > 1 ? 's' : ''}: ${added
+          .slice(0, 3)
+          .map((t) => t.desc)
+          .join(', ')}${added.length > 3 ? '…' : ''}`,
+      )
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isCloudConfigured()) return
+    let alive = true
+    let unsub = null
+    watchAuth((u) => {
+      if (!alive) return
+      setUser(u)
+      setAuthReady(true)
+    })
+      .then((fn) => {
+        if (alive) unsub = fn
+        else fn()
+      })
+      .catch(() => {
+        if (alive) {
+          setAuthReady(true)
+          setSyncStatus('Cloud is unavailable right now. Try again later.')
+        }
+      })
+    return () => {
+      alive = false
+      if (unsub) unsub()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user) {
+      lastUidRef.current = null
+      return
+    }
+    if (lastUidRef.current === user.uid) return
+    lastUidRef.current = user.uid
+    let cancelled = false
+    cloudBusyRef.current = true
+    ;(async () => {
+      setSyncStatus('Connecting to cloud…')
+      try {
+        const cloud = await loadCloudState(user.uid)
+        if (cancelled) return
+        const local = stateRef.current
+        const merged = cloud ? mergeStates(local, cloud) : local
+        if (cloud) {
+          setState(merged)
+        }
+        lastSyncedRef.current = JSON.stringify(merged)
+        await saveCloudState(user.uid, merged)
+        if (cancelled) return
+        cloudPausedRef.current = false
+        setSyncStatus(
+          cloud
+            ? `Merged cloud data — ${merged.txns.length} transactions on this device`
+            : 'Uploaded this device’s data to the cloud',
+        )
+        setSyncTime(formatClock())
+      } catch (err) {
+        if (cancelled) return
+        lastSyncedRef.current = ''
+        setSyncStatus(cloudErrorHint(err))
+        const code = String((err && err.code) || '')
+        cloudPausedRef.current = code === 'failed-precondition' || code === 'permission-denied'
+      } finally {
+        if (!cancelled) cloudBusyRef.current = false
+      }
+    })()
+    return () => {
+      cancelled = true
+      cloudBusyRef.current = false
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!user || cloudPausedRef.current || cloudBusyRef.current) return
+    const json = JSON.stringify(state)
+    if (json === lastSyncedRef.current) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(async () => {
+      if (cloudBusyRef.current) return
+      setSyncStatus('Saving to cloud…')
+      try {
+        await saveCloudState(user.uid, state)
+        lastSyncedRef.current = json
+        setSyncStatus('All changes saved to cloud')
+        setSyncTime(formatClock())
+      } catch (err) {
+        setSyncStatus(cloudErrorHint(err))
+        const code = String((err && err.code) || '')
+        if (code === 'failed-precondition' || code === 'permission-denied') cloudPausedRef.current = true
+      }
+    }, 2200)
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [state, user])
 
   const monthTxnsRaw = useMemo(
     () =>
@@ -335,6 +526,71 @@ function App() {
       accountFilter === 'All' ? monthTxnsRaw : monthTxnsRaw.filter((t) => (t.account || 'Bank') === accountFilter),
     [monthTxnsRaw, accountFilter],
   )
+
+  const allScopeTxns = useMemo(
+    () =>
+      accountFilter === 'All'
+        ? state.txns
+        : state.txns.filter((t) => (t.account || 'Bank') === accountFilter),
+    [state.txns, accountFilter],
+  )
+
+  const spendSource = useMemo(
+    () => (spendScope === 'all' ? allScopeTxns : monthTxns),
+    [spendScope, allScopeTxns, monthTxns],
+  )
+
+  const nameRows = useMemo(() => spendByName(spendSource), [spendSource])
+  const nameTotal = nameRows.reduce((s, g) => s + g.total, 0)
+  const visibleNameRows = nameRows.slice(0, 15)
+
+  const accountRows = useMemo(
+    () =>
+      accountSummaries(monthTxnsRaw, state.accounts || ACCOUNTS)
+        .filter((r) => r.count > 0)
+        .sort((a, b) => b.spent - a.spent),
+    [monthTxnsRaw, state.accounts],
+  )
+  const accountMonthSpent = accountRows.reduce((s, r) => s + r.spent, 0)
+
+  const txnSource = useMemo(
+    () =>
+      txnScope === 'all'
+        ? [...allScopeTxns].sort((a, b) => (a.date < b.date ? 1 : -1))
+        : monthTxns,
+    [txnScope, allScopeTxns, monthTxns],
+  )
+
+  const filteredTxns = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const terms = q.split(/\s+/).filter(Boolean)
+    return txnSource.filter((t) => {
+      if (txnTypeFilter === 'Expense' && t.amount >= 0) return false
+      if (txnTypeFilter === 'Income' && t.amount <= 0) return false
+      if (txnCatFilter !== 'All' && t.category !== txnCatFilter) return false
+      if (terms.length === 0) return true
+      const hay = [
+        t.desc,
+        t.note,
+        t.category,
+        t.method,
+        t.account,
+        extractPersonName(t.desc),
+        spenderName(t.desc),
+        String(Math.abs(t.amount)),
+        t.date,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return terms.every((term) => hay.includes(term))
+    })
+  }, [txnSource, search, txnCatFilter, txnTypeFilter])
+
+  const filteredSpent = filteredTxns
+    .filter((t) => t.amount < 0)
+    .reduce((s, t) => s + -t.amount, 0)
+  const hasTxnFilters = search.trim() !== '' || txnCatFilter !== 'All' || txnTypeFilter !== 'All' || txnScope !== 'month'
 
   const spent = monthTxns.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0)
   const income = monthTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)
@@ -422,9 +678,9 @@ function App() {
   const subTotal = subscriptions.reduce((s, x) => s + x.amount, 0)
   const insights = useMemo(
     () => generateInsights(state, monthTxns, spent, income, month, monthBudget),
-    [state.txns, monthTxns, spent, income, month, monthBudget],
+    [state, monthTxns, spent, income, month, monthBudget],
   )
-  const health = useMemo(() => computeHealthScore(state, month), [state.txns, state.budgets, month])
+  const health = useMemo(() => computeHealthScore(state, month), [state, month])
   const goalsTotal = (state.goals || []).reduce((s, g) => s + (g.saved || 0), 0)
 
   useEffect(() => {
@@ -585,6 +841,221 @@ function App() {
 
   function removePerson(name) {
     setState((s) => ({ ...s, people: s.people.filter((p) => p.name !== name) }))
+  }
+
+  function addAccount() {
+    const name = newAccount.trim().slice(0, 24)
+    if (!name) return
+    const existing = (state.accounts || ACCOUNTS).find(
+      (a) => a.toLowerCase() === name.toLowerCase(),
+    )
+    if (existing) {
+      setImportMsg(`Account "${existing}" already exists.`)
+      setNewAccount('')
+      return
+    }
+    setState((s) => ({ ...s, accounts: [...(s.accounts || ACCOUNTS), name] }))
+    setForm((f) => ({ ...f, account: name }))
+    setRecForm((f) => ({ ...f, account: name }))
+    setNewAccount('')
+    setImportMsg(`Account "${name}" added — pick it when adding or importing transactions.`)
+  }
+
+  function removeAccount(name) {
+    if (ACCOUNTS.includes(name)) return
+    if (state.txns.some((t) => (t.account || 'Bank') === name)) {
+      setImportMsg(`Can't remove "${name}" — it has transactions. Edit those transactions first.`)
+      return
+    }
+    if (!window.confirm(`Remove account "${name}"?`)) return
+    setState((s) => ({
+      ...s,
+      accounts: (s.accounts || []).filter((a) => a !== name),
+      recurring: (s.recurring || []).filter((r) => r.account !== name),
+    }))
+    if (accountFilter === name) setAccountFilter('All')
+    setImportMsg(`Account "${name}" removed.`)
+  }
+
+  function addRecurring() {
+    const desc = recForm.desc.trim()
+    const amount = parseFloat(recForm.amount)
+    if (!desc || !amount || Number.isNaN(amount) || amount <= 0 || !recForm.nextDate) {
+      setImportMsg('Enter a name, amount and next date for the recurring payment.')
+      return
+    }
+    const rec = {
+      id: uid(),
+      desc: desc.slice(0, 80),
+      amount: Math.abs(amount),
+      type: recForm.type,
+      category: recForm.category,
+      method: recForm.method,
+      account: recForm.account,
+      freq: recForm.freq,
+      nextDate: recForm.nextDate,
+      active: true,
+    }
+    const dueNow = rec.nextDate <= todayStr()
+    const firstTxn = dueNow
+      ? {
+          id: `rec-${rec.id}-${rec.nextDate}`,
+          date: rec.nextDate,
+          desc: rec.desc,
+          amount: rec.type === 'income' ? rec.amount : -rec.amount,
+          category: rec.category,
+          method: rec.method,
+          account: rec.account,
+          recurringId: rec.id,
+        }
+      : null
+    const stored = dueNow ? { ...rec, nextDate: advanceDate(rec.nextDate, rec.freq) } : rec
+    setState((s) => ({
+      ...s,
+      recurring: [...(s.recurring || []), stored],
+      txns: firstTxn ? [firstTxn, ...s.txns] : s.txns,
+    }))
+    setRecForm((f) => ({ ...f, desc: '', amount: '' }))
+    setImportMsg(
+      dueNow
+        ? `Recurring "${desc}" saved and its first payment was posted. Next on ${fmtDate(stored.nextDate)}.`
+        : `Recurring "${desc}" scheduled for ${fmtDate(rec.nextDate)}.`,
+    )
+  }
+
+  function postRecurringNow(rec) {
+    const id = `rec-${rec.id}-${rec.nextDate}`
+    if (stateRef.current.txns.some((t) => t.id === id)) return
+    const txn = {
+      id,
+      date: rec.nextDate,
+      desc: rec.desc,
+      amount: rec.type === 'income' ? rec.amount : -rec.amount,
+      category: rec.category,
+      method: rec.method,
+      account: rec.account,
+      recurringId: rec.id,
+    }
+    setState((s) => ({
+      ...s,
+      txns: [txn, ...s.txns],
+      recurring: (s.recurring || []).map((r) =>
+        r.id === rec.id ? { ...r, nextDate: advanceDate(r.nextDate, r.freq) } : r,
+      ),
+    }))
+    setImportMsg(
+      `Posted "${rec.desc}" ${fmtMoney(rec.amount)}. Next on ${fmtDate(advanceDate(rec.nextDate, rec.freq))}.`,
+    )
+  }
+
+  function toggleRecurring(id) {
+    setState((s) => ({
+      ...s,
+      recurring: (s.recurring || []).map((r) => (r.id === id ? { ...r, active: !r.active } : r)),
+    }))
+  }
+
+  function deleteRecurring(id) {
+    setState((s) => ({ ...s, recurring: (s.recurring || []).filter((r) => r.id !== id) }))
+  }
+
+  function runDueRecurring() {
+    const { state: next, added } = postDueRecurring(stateRef.current)
+    if (added.length === 0) {
+      setImportMsg('No recurring payments are due right now.')
+      return
+    }
+    setState(next)
+    setMonth(monthKey(added[added.length - 1].date) || month)
+    setImportMsg(`Posted ${added.length} due recurring payment${added.length > 1 ? 's' : ''}.`)
+  }
+
+  function filterByName(name) {
+    setSearch(name)
+    setTxnCatFilter('All')
+    setTxnTypeFilter('All')
+    setTxnScope(spendScope === 'all' ? 'all' : 'month')
+    const el = document.getElementById('transactions')
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function clearTxnFilters() {
+    setSearch('')
+    setTxnCatFilter('All')
+    setTxnTypeFilter('All')
+    setTxnScope('month')
+  }
+
+  async function handleAuthSubmit(e) {
+    e.preventDefault()
+    const email = authEmail.trim()
+    if (!email || !authPassword) {
+      setAuthMsg('Enter your email and password.')
+      return
+    }
+    setAuthBusy(true)
+    setAuthMsg('')
+    try {
+      if (authMode === 'signup') await signUpWithEmail(email, authPassword)
+      else await signInWithEmail(email, authPassword)
+      setAuthPassword('')
+    } catch (err) {
+      setAuthMsg(cloudErrorHint(err))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function handleGoogleAuth() {
+    setAuthBusy(true)
+    setAuthMsg('')
+    try {
+      await signInWithGoogle()
+    } catch (err) {
+      setAuthMsg(cloudErrorHint(err))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function handleSignOut() {
+    try {
+      await signOutUser()
+      lastUidRef.current = null
+      lastSyncedRef.current = ''
+      cloudPausedRef.current = false
+      setSyncStatus('')
+      setSyncTime('')
+      setAuthMsg('Signed out. Your data stays on this device.')
+    } catch (err) {
+      setAuthMsg(cloudErrorHint(err))
+    }
+  }
+
+  async function handleCloudSyncNow() {
+    if (!user) {
+      setCloudOpen(true)
+      return
+    }
+    setAuthBusy(true)
+    setSyncStatus('Merging and saving…')
+    cloudBusyRef.current = true
+    try {
+      const cloud = await loadCloudState(user.uid)
+      const merged = cloud ? mergeStates(stateRef.current, cloud) : stateRef.current
+      setState(merged)
+      lastSyncedRef.current = JSON.stringify(merged)
+      await saveCloudState(user.uid, merged)
+      cloudPausedRef.current = false
+      setSyncStatus(`Synced — ${merged.txns.length} transactions in the cloud`)
+      setSyncTime(formatClock())
+    } catch (err) {
+      lastSyncedRef.current = ''
+      setSyncStatus(cloudErrorHint(err))
+    } finally {
+      cloudBusyRef.current = false
+      setAuthBusy(false)
+    }
   }
 
   function recategorizeOthers() {
@@ -1029,6 +1500,8 @@ function App() {
           people: data.people || [],
           budgets: data.budgets || {},
           goals: data.goals || [],
+          accounts: Array.isArray(data.accounts) && data.accounts.length ? data.accounts : [...ACCOUNTS],
+          recurring: Array.isArray(data.recurring) ? data.recurring : [],
         })
         setBackupMsg(`Backup restored — ${data.txns.length} transactions.`)
         const ms = monthsFromTxns(data.txns || [])
@@ -1052,6 +1525,13 @@ function App() {
         <div className="header-inner">
           <h1>My Expenses</h1>
           <div className="month-nav">
+            <button
+              className={user ? 'theme-btn cloud-on' : 'theme-btn'}
+              onClick={() => setCloudOpen(true)}
+              title={user ? `Cloud sync · ${user.email}` : 'Sign in to sync across devices'}
+            >
+              {user ? '☁️' : '👤'}
+            </button>
             <button
               className="theme-btn"
               onClick={() => setDark((d) => !d)}
@@ -1084,6 +1564,14 @@ function App() {
       <main>
         {importMsg && isFailMsg(importMsg) && (
           <div className="fail-banner no-print">
+            <span>{importMsg}</span>
+            <button className="ghost del" onClick={() => setImportMsg('')} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        )}
+        {importMsg && !isFailMsg(importMsg) && (
+          <div className="notice-banner no-print">
             <span>{importMsg}</span>
             <button className="ghost del" onClick={() => setImportMsg('')} aria-label="Dismiss">
               ✕
@@ -1143,7 +1631,7 @@ function App() {
           </span>
           {dataMonths.length > 1 && (
             <span className="alltime-months">
-              {dataMonths.map((m, i) => (
+              {dataMonths.map((m) => (
                 <button key={m} className={m === month ? 'chip active' : 'chip'} onClick={() => setMonth(m)}>
                   {formatMonth(m)}
                 </button>
@@ -1159,7 +1647,7 @@ function App() {
               <button
                 key={a}
                 className={accountFilter === a ? 'chip active' : 'chip'}
-                style={accountFilter === a ? { background: colorFor(a), borderColor: colorFor(a) } : {}}
+                style={accountFilter === a ? { background: accountColor(a), borderColor: accountColor(a) } : {}}
                 onClick={() => setAccountFilter(a)}
               >
                 {a === 'All' ? 'All' : a}
@@ -1283,6 +1771,162 @@ function App() {
           )}
         </section>
 
+        <section className="panel no-print">
+          <div className="panel-head">
+            <h2>Where your money goes</h2>
+            <div className="row">
+              <button
+                type="button"
+                className={spendScope === 'month' ? 'chip active' : 'chip'}
+                onClick={() => setSpendScope('month')}
+              >
+                This month
+              </button>
+              <button
+                type="button"
+                className={spendScope === 'all' ? 'chip active' : 'chip'}
+                onClick={() => setSpendScope('all')}
+              >
+                All time
+              </button>
+            </div>
+          </div>
+          <p className="hint" style={{ marginTop: 8 }}>
+            All spending grouped by the shop or person name. Tap any name to see those transactions.
+          </p>
+          {visibleNameRows.length === 0 ? (
+            <p className="empty">
+              No spending {spendScope === 'all' ? 'recorded' : `in ${formatMonth(month)}`} yet.
+            </p>
+          ) : (
+            <>
+              <div className="name-summary">
+                <span>
+                  <b>{nameRows.length}</b> {nameRows.length === 1 ? 'name' : 'names'}
+                </span>
+                <span>
+                  Total <b>{fmtMoney(nameTotal)}</b>
+                </span>
+              </div>
+              <div className="name-list">
+                {visibleNameRows.map((g) => (
+                  <button
+                    type="button"
+                    className="name-row"
+                    key={g.name}
+                    onClick={() => filterByName(g.name)}
+                    title={`Show transactions for ${g.name}`}
+                  >
+                    <span className="name-main">
+                      <span className="name-label">{g.name}</span>
+                      <span className="name-meta">
+                        {g.count} txn{g.count > 1 ? 's' : ''}
+                        {g.categories.length > 0
+                          ? ` · ${g.categories.slice(0, 2).map((c) => emojiFor(c)).join(' ')}`
+                          : ''}
+                        {g.lastDate ? ` · last ${fmtDate(g.lastDate)}` : ''}
+                      </span>
+                    </span>
+                    <span className="name-track">
+                      <span
+                        className="name-fill"
+                        style={{
+                          width: `${Math.max(2, (g.total / nameTotal) * 100)}%`,
+                          background: colorFor(g.categories[0] || 'Other'),
+                        }}
+                      />
+                    </span>
+                    <span className="name-amount">
+                      {fmtMoney(g.total)}
+                      <span className="bar-pct">{Math.round((g.total / nameTotal) * 100)}%</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {nameRows.length > visibleNameRows.length && (
+                <p className="hint" style={{ marginTop: 8 }}>
+                  Showing the top {visibleNameRows.length} of {nameRows.length} names — search below to find
+                  any name.
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        <section className="panel no-print">
+          <div className="panel-head">
+            <h2>Accounts</h2>
+            <span className="panel-sub">
+              {formatMonth(month)} · {accountRows.length} active
+            </span>
+          </div>
+          <p className="hint" style={{ marginTop: 8 }}>
+            All your accounts in one place. Tap an account to filter the whole page, or add your own account.
+          </p>
+          {accountRows.length === 0 ? (
+            <p className="empty">No account activity this month.</p>
+          ) : (
+            <div className="acct-grid">
+              {accountRows.map((r) => (
+                <div
+                  key={r.account}
+                  className={accountFilter === r.account ? 'acct-card active' : 'acct-card'}
+                  style={{ borderColor: accountFilter === r.account ? accountColor(r.account) : undefined }}
+                  onClick={() => setAccountFilter(accountFilter === r.account ? 'All' : r.account)}
+                >
+                  <div className="acct-top">
+                    <span className="acct-name">
+                      <span className="dot" style={{ background: accountColor(r.account) }} />
+                      {r.account}
+                    </span>
+                    {!ACCOUNTS.includes(r.account) && (
+                      <button
+                        type="button"
+                        className="ghost del"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeAccount(r.account)
+                        }}
+                        aria-label={`Remove ${r.account}`}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <span className="acct-spent">{fmtMoney(r.spent)}</span>
+                  <span className="acct-meta">
+                    spent · {r.count} txn{r.count > 1 ? 's' : ''}
+                  </span>
+                  <div className="acct-bar">
+                    <span
+                      style={{
+                        width: `${accountMonthSpent > 0 ? (r.spent / accountMonthSpent) * 100 : 0}%`,
+                        background: accountColor(r.account),
+                      }}
+                    />
+                  </div>
+                  <span className="acct-meta">
+                    in {fmtMoney(r.income)} · net{' '}
+                    <b className={r.net < 0 ? 'spent' : 'income'}>{fmtMoney(r.net)}</b>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="row" style={{ marginTop: 10 }}>
+            <input
+              type="text"
+              placeholder="Add account e.g. HDFC, SBI, Wallet"
+              value={newAccount}
+              maxLength={24}
+              onChange={(e) => setNewAccount(e.target.value)}
+            />
+            <button type="button" className="ghost bordered" onClick={addAccount}>
+              + Add account
+            </button>
+          </div>
+        </section>
+
         {insights.length > 0 && (
           <section className="panel no-print">
             <div className="panel-head">
@@ -1355,6 +1999,145 @@ function App() {
             </p>
           </section>
         )}
+
+        <section className="panel no-print">
+          <div className="panel-head">
+            <h2>Recurring payments</h2>
+            <button type="button" className="ghost bordered" onClick={runDueRecurring}>
+              Post due now
+            </button>
+          </div>
+          <p className="hint" style={{ marginTop: 8 }}>
+            Rent, salary, EMI and subscriptions are added automatically on their due date when you open the
+            app.
+          </p>
+          <div className="row wrap">
+            <input
+              type="text"
+              placeholder="Name e.g. House rent"
+              value={recForm.desc}
+              onChange={(e) => setRecForm((f) => ({ ...f, desc: e.target.value }))}
+            />
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              placeholder="Amount ₹"
+              value={recForm.amount}
+              onChange={(e) => setRecForm((f) => ({ ...f, amount: e.target.value }))}
+            />
+          </div>
+          <div className="row wrap" style={{ marginTop: 8 }}>
+            <select
+              value={recForm.type}
+              onChange={(e) => setRecForm((f) => ({ ...f, type: e.target.value }))}
+            >
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+            <select
+              className="cat-select"
+              value={recForm.category}
+              onChange={(e) => setRecForm((f) => ({ ...f, category: e.target.value }))}
+            >
+              {state.categories.map((c) => (
+                <option key={c} value={c}>
+                  {emojiFor(c)} {c}
+                </option>
+              ))}
+            </select>
+            <select
+              value={recForm.method}
+              onChange={(e) => setRecForm((f) => ({ ...f, method: e.target.value }))}
+            >
+              {['UPI', 'Cash', 'Card', 'Transfer', 'Other'].map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <select
+              value={recForm.account}
+              onChange={(e) => setRecForm((f) => ({ ...f, account: e.target.value }))}
+            >
+              {(state.accounts || ACCOUNTS).map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="row wrap" style={{ marginTop: 8 }}>
+            <select
+              value={recForm.freq}
+              onChange={(e) => setRecForm((f) => ({ ...f, freq: e.target.value }))}
+            >
+              <option value="weekly">Every week</option>
+              <option value="monthly">Every month</option>
+              <option value="yearly">Every year</option>
+            </select>
+            <input
+              type="date"
+              title="Next due date"
+              value={recForm.nextDate}
+              onChange={(e) => setRecForm((f) => ({ ...f, nextDate: e.target.value }))}
+            />
+            <button type="button" className="primary rec-add" onClick={addRecurring}>
+              + Add recurring
+            </button>
+          </div>
+          {(state.recurring || []).length > 0 ? (
+            <div className="rec-list">
+              {[...state.recurring]
+                .sort((a, b) => (a.nextDate < b.nextDate ? -1 : 1))
+                .map((r) => (
+                  <div className={r.active ? 'rec-row' : 'rec-row paused'} key={r.id}>
+                    <div className="rec-info">
+                      <span className="rec-name">
+                        {emojiFor(r.category)} {r.desc}
+                      </span>
+                      <span className="rec-meta">
+                        {r.freq} · {r.account} · next {fmtDate(r.nextDate)}
+                        {!r.active ? ' · paused' : ''}
+                      </span>
+                    </div>
+                    <span className={`rec-amt ${r.type === 'income' ? 'income' : 'spent'}`}>
+                      {r.type === 'income' ? '+' : '−'}
+                      {fmtMoney(r.amount)}
+                    </span>
+                    <div className="rec-actions">
+                      <button
+                        type="button"
+                        className="ghost bordered"
+                        onClick={() => postRecurringNow(r)}
+                      >
+                        Post now
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost bordered"
+                        onClick={() => toggleRecurring(r.id)}
+                      >
+                        {r.active ? 'Pause' : 'Resume'}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost del"
+                        onClick={() => deleteRecurring(r.id)}
+                        aria-label="Delete recurring"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <p className="hint" style={{ marginTop: 10 }}>
+              No recurring payments yet — add rent, salary or subscriptions above.
+            </p>
+          )}
+        </section>
 
         <section className="panel" id="statement">
           <div className="panel-head">
@@ -1473,16 +2256,80 @@ function App() {
           )}
         </section>
 
-        <section className="panel no-print">
-          <h2>Transactions</h2>
-          {monthTxns.length === 0 ? (
-            <p className="empty">Nothing here yet — add your first expense above.</p>
+        <section className="panel no-print" id="transactions">
+          <div className="panel-head">
+            <h2>Transactions</h2>
+            <span className="panel-sub">
+              {filteredTxns.length} shown · spent {fmtMoney(filteredSpent)}
+            </span>
+          </div>
+          <div className="txn-tools">
+            <input
+              type="search"
+              className="search-input"
+              placeholder="Search name, note, amount…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select
+              className="cat-select"
+              value={txnCatFilter}
+              onChange={(e) => setTxnCatFilter(e.target.value)}
+              title="Filter by category"
+            >
+              <option value="All">All categories</option>
+              {state.categories.map((c) => (
+                <option key={c} value={c}>
+                  {emojiFor(c)} {c}
+                </option>
+              ))}
+            </select>
+            <select
+              className="cat-select"
+              value={txnTypeFilter}
+              onChange={(e) => setTxnTypeFilter(e.target.value)}
+              title="Filter by type"
+            >
+              <option value="All">All types</option>
+              <option value="Expense">Expenses</option>
+              <option value="Income">Income</option>
+            </select>
+          </div>
+          <div className="txn-tools-row">
+            <button
+              type="button"
+              className={txnScope === 'month' ? 'chip active' : 'chip'}
+              onClick={() => setTxnScope('month')}
+            >
+              This month
+            </button>
+            <button
+              type="button"
+              className={txnScope === 'all' ? 'chip active' : 'chip'}
+              onClick={() => setTxnScope('all')}
+            >
+              All months
+            </button>
+            {hasTxnFilters && (
+              <button type="button" className="ghost" onClick={clearTxnFilters}>
+                Clear filters
+              </button>
+            )}
+          </div>
+          {filteredTxns.length === 0 ? (
+            <p className="empty">
+              {hasTxnFilters
+                ? 'No transactions match these filters.'
+                : 'Nothing here yet — add your first expense above.'}
+            </p>
           ) : (
             <ul className="txn-list">
-              {monthTxns.map((t) => (
+              {filteredTxns.map((t) => (
                 <li key={t.id} className="txn">
                   <button className="txn-main" onClick={() => editTxn(t)} title="Click to edit">
-                    <span className="txn-date">{t.date.slice(8, 10)} {formatMonth(month).split(' ')[0]}</span>
+                    <span className="txn-date">
+                      {t.date.slice(8, 10)} {formatMonth(t.date.slice(0, 7)).split(' ')[0]}
+                    </span>
                     <span className="txn-info">
                       <span className="txn-desc">{t.desc || t.category}</span>
                       {t.note && <span className="txn-note">📝 {t.note}</span>}
@@ -1770,7 +2617,7 @@ function App() {
                 title="Account"
                 onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))}
               >
-                {ACCOUNTS.map((a) => (
+                {(state.accounts || ACCOUNTS).map((a) => (
                   <option key={a} value={a}>
                     {a}
                   </option>
@@ -1854,6 +2701,53 @@ function App() {
               </button>
             )}
           </form>
+        </section>
+
+        <section className="panel no-print">
+          <div className="panel-head">
+            <h2>Cloud sync</h2>
+            <span className="panel-sub">{user ? user.email : 'not signed in'}</span>
+          </div>
+          {user ? (
+            <>
+              <p className="hint" style={{ marginTop: 8 }}>
+                Your expenses are saved privately under your account and merged across your devices.
+              </p>
+              <div className="row wrap">
+                <button
+                  type="button"
+                  className="ghost bordered"
+                  onClick={handleCloudSyncNow}
+                  disabled={authBusy}
+                >
+                  {authBusy ? 'Syncing…' : 'Sync now'}
+                </button>
+                <button type="button" className="ghost bordered" onClick={handleSignOut}>
+                  Sign out
+                </button>
+              </div>
+              {syncStatus && (
+                <p className="hint">
+                  {syncStatus}
+                  {syncTime ? ` · ${syncTime}` : ''}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="hint" style={{ marginTop: 8 }}>
+                Sign in to back up your expenses and use them on your phone and computer. Your data stays
+                linked to your account only.
+              </p>
+              <div className="row wrap">
+                <button type="button" className="ghost bordered" onClick={() => setCloudOpen(true)}>
+                  Sign in / Create account
+                </button>
+              </div>
+              {!authReady && <p className="hint">Connecting to cloud…</p>}
+              {authReady && syncStatus && <p className="hint">{syncStatus}</p>}
+            </>
+          )}
         </section>
 
         <section className="panel no-print">
@@ -2084,7 +2978,153 @@ function App() {
         </div>
       )}
 
-      <footer className="footer no-print">Your data never leaves this browser.</footer>
+      {cloudOpen && (
+        <div className="modal-backdrop no-print" onClick={() => setCloudOpen(false)}>
+          <div className="modal cloud-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-head">
+              <h2>{user ? 'Cloud sync' : authMode === 'signup' ? 'Create account' : 'Sign in'}</h2>
+              <button type="button" className="ghost del" onClick={() => setCloudOpen(false)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            {user ? (
+              <>
+                <div className="cloud-user">
+                  <span className="cloud-avatar">
+                    {(user.displayName || user.email || 'U').slice(0, 1).toUpperCase()}
+                  </span>
+                  <div className="cloud-user-info">
+                    <b>{user.displayName || 'Signed in'}</b>
+                    <span className="hint">{user.email}</span>
+                  </div>
+                </div>
+                <p className="hint">
+                  {syncStatus || 'Connecting…'}
+                  {syncTime ? ` · ${syncTime}` : ''}
+                </p>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={handleCloudSyncNow}
+                    disabled={authBusy}
+                  >
+                    {authBusy ? 'Syncing…' : 'Sync now'}
+                  </button>
+                  <button type="button" className="ghost bordered" onClick={handleSignOut}>
+                    Sign out
+                  </button>
+                </div>
+                <p className="hint">
+                  Signing out keeps this device's data. Sign in again any time to merge with the cloud.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="type-toggle" style={{ marginBottom: 10 }}>
+                  <button
+                    type="button"
+                    className={authMode === 'signin' ? 'seg active' : 'seg'}
+                    onClick={() => {
+                      setAuthMode('signin')
+                      setAuthMsg('')
+                    }}
+                  >
+                    Sign in
+                  </button>
+                  <button
+                    type="button"
+                    className={authMode === 'signup' ? 'seg active' : 'seg'}
+                    onClick={() => {
+                      setAuthMode('signup')
+                      setAuthMsg('')
+                    }}
+                  >
+                    Create account
+                  </button>
+                </div>
+                <form className="add-form" onSubmit={handleAuthSubmit}>
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={authEmail}
+                    autoComplete="email"
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder={authMode === 'signup' ? 'Password (min 6 characters)' : 'Password'}
+                    value={authPassword}
+                    autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    required
+                    minLength={6}
+                  />
+                  <button className="primary" type="submit" disabled={authBusy}>
+                    {authBusy ? 'Please wait…' : authMode === 'signup' ? 'Create account' : 'Sign in'}
+                  </button>
+                </form>
+                <div className="or-divider">
+                  <span>or</span>
+                </div>
+                <button
+                  type="button"
+                  className="ghost bordered google-btn"
+                  onClick={handleGoogleAuth}
+                  disabled={authBusy}
+                >
+                  Continue with Google
+                </button>
+                {authMsg && <p className={isFailMsg(authMsg) ? 'import-msg fail' : 'hint'}>{authMsg}</p>}
+                {syncStatus && <p className="hint">{syncStatus}</p>}
+                <p className="hint">
+                  Your expenses are private to your account. Data syncs automatically after sign-in.
+                </p>
+                <details className="setup-box">
+                  <summary>One-time cloud setup (Firestore)</summary>
+                  <p className="hint">
+                    Cloud sync needs Firestore enabled in your Firebase project. In{' '}
+                    <a
+                      href="https://console.firebase.google.com/project/expense-tracker-dd80b/firestore"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Firebase Console
+                    </a>
+                    :
+                  </p>
+                  <ol className="hint setup-steps">
+                    <li>Build → Firestore Database → Create database (production mode).</li>
+                    <li>Firestore → Rules → paste the rules below → Publish.</li>
+                    <li>
+                      Authentication → Settings → Authorized domains → add{' '}
+                      <code>darshans8190.github.io</code> for Google sign-in.
+                    </li>
+                  </ol>
+                  <pre className="rules-box">{CLOUD_RULES}</pre>
+                  <button
+                    type="button"
+                    className="ghost bordered"
+                    onClick={() => {
+                      navigator.clipboard
+                        ?.writeText(CLOUD_RULES)
+                        .then(() => setAuthMsg('Rules copied — paste them in Firebase → Firestore → Rules.'))
+                        .catch(() => setAuthMsg('Could not copy. Select the rules text manually.'))
+                    }}
+                  >
+                    Copy rules
+                  </button>
+                </details>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      <footer className="footer no-print">
+        Your data stays in this browser unless you sign in for cloud sync.
+      </footer>
     </div>
   )
 }

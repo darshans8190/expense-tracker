@@ -192,7 +192,242 @@ export function dedupeTxns(txns) {
 }
 
 export function emptyState() {
-  return { txns: [], balances: {}, categories: DEFAULT_CATEGORIES, people: [], budgets: {}, goals: [] }
+  return {
+    txns: [],
+    balances: {},
+    categories: [...DEFAULT_CATEGORIES],
+    people: [],
+    budgets: {},
+    goals: [],
+    accounts: [...ACCOUNTS],
+    recurring: [],
+  }
+}
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+export function daysInMonth(year, month) {
+  return new Date(year, month, 0).getDate()
+}
+
+export function advanceDate(iso, freq) {
+  const [y, m, d] = String(iso).split('-').map(Number)
+  if (!y || !m || !d) return iso
+  if (freq === 'weekly') {
+    const dt = new Date(y, m - 1, d + 7)
+    return isoDate(dt)
+  }
+  if (freq === 'yearly') {
+    const year = y + 1
+    const day = Math.min(d, daysInMonth(year, m))
+    return `${year}-${pad2(m)}-${pad2(day)}`
+  }
+  const nm = m === 12 ? 1 : m + 1
+  const ny = m === 12 ? y + 1 : y
+  const day = Math.min(d, daysInMonth(ny, nm))
+  return `${ny}-${pad2(nm)}-${pad2(day)}`
+}
+
+export function recurringDueDates(rec, todayIso = todayStr(), limit = 24) {
+  if (!rec || rec.active === false || !rec.nextDate) return []
+  const dates = []
+  let next = rec.nextDate
+  let guard = 0
+  while (next <= todayIso && guard < limit) {
+    dates.push(next)
+    next = advanceDate(next, rec.freq)
+    guard++
+  }
+  return dates
+}
+
+export function postDueRecurring(state, todayIso = todayStr()) {
+  const recurring = Array.isArray(state.recurring) ? state.recurring : []
+  if (recurring.length === 0) return { state, added: [] }
+  const existing = new Set((state.txns || []).map((t) => t.id))
+  const added = []
+  const nextRecurring = recurring.map((rec) => {
+    if (!rec || rec.active === false || !rec.nextDate) return rec
+    let next = rec.nextDate
+    let guard = 0
+    while (next <= todayIso && guard < 24) {
+      const id = `rec-${rec.id}-${next}`
+      if (!existing.has(id)) {
+        existing.add(id)
+        added.push({
+          id,
+          date: next,
+          desc: rec.desc,
+          amount: rec.type === 'income' ? rec.amount : -rec.amount,
+          category: rec.category,
+          method: rec.method,
+          account: rec.account,
+          recurringId: rec.id,
+        })
+      }
+      next = advanceDate(next, rec.freq)
+      guard++
+    }
+    return next === rec.nextDate ? rec : { ...rec, nextDate: next }
+  })
+  if (added.length === 0) {
+    return { state: nextRecurring.every((r, i) => r === recurring[i]) ? state : { ...state, recurring: nextRecurring }, added }
+  }
+  return { state: { ...state, txns: [...added, ...state.txns], recurring: nextRecurring }, added }
+}
+
+const SPENDER_STOP = new Set([
+  'upi', 'neft', 'imps', 'rtgs', 'ach', 'pos', 'atm', 'dr', 'cr', 'txn', 'trf',
+  'ref', 'refno', 'no', 'id', 'utr', 'payment', 'pay', 'paid', 'purchase',
+  'transfer', 'order', 'pvt', 'ltd', 'limited', 'private', 'india', 'bank',
+  'ac', 'a/c', 'card', 'debit', 'credit', 'from', 'to', 'by', 'via', 'the',
+  'dinner', 'lunch', 'breakfast', 'snacks', 'subscription', 'renewal', 'bill',
+  'electricity', 'groceries', 'grocery', 'petrol', 'diesel', 'fuel', 'trip',
+  'ride', 'recharge', 'cashback', 'refund', 'instalment', 'installment',
+])
+
+const KNOWN_MERCHANTS = [
+  ['indian oil', 'Indian Oil'],
+  ['bharat petroleum', 'Bharat Petroleum'],
+  ['hindustan petroleum', 'Hindustan Petroleum'],
+  ['reliance fresh', 'Reliance Fresh'],
+  ['reliance digital', 'Reliance Digital'],
+  ['more supermarket', 'More Supermarket'],
+  ['natures basket', 'Natures Basket'],
+  ['tata power', 'Tata Power'],
+  ['tata sky', 'Tata Sky'],
+  ['tata cliq', 'Tata Cliq'],
+  ['jio cinema', 'Jio Cinema'],
+  ['jio saavn', 'Jio Saavn'],
+  ['book my show', 'BookMyShow'],
+  ['cafe coffee day', 'Cafe Coffee Day'],
+  ['amazon pay', 'Amazon Pay'],
+  ['big basket', 'BigBasket'],
+  ['act fibernet', 'ACT Fibernet'],
+  ['mahanagar gas', 'Mahanagar Gas'],
+  ['air india', 'Air India'],
+  ['make my trip', 'MakeMyTrip'],
+  ['namma yatri', 'Namma Yatri'],
+  ['pizza hut', 'Pizza Hut'],
+  ['burger king', 'Burger King'],
+  ['apollo pharmacy', 'Apollo Pharmacy'],
+  ['cult fit', 'Cult.fit'],
+  ['healthify me', 'HealthifyMe'],
+  ['house rent', 'House Rent'],
+]
+
+export function spenderName(desc) {
+  const person = extractPersonName(desc)
+  if (person) return titleCase(person.replace(/[._-]+/g, ' ')).slice(0, 32)
+  const cleaned = String(cleanUPIDesc(desc) || '')
+    .replace(/[|/\\]/g, ' ')
+    .replace(/[^A-Za-z0-9&.\s]/g, ' ')
+    .replace(/\b[A-Za-z]*\d+[A-Za-z0-9]*\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const lower = cleaned.toLowerCase()
+  for (const [needle, label] of KNOWN_MERCHANTS) {
+    if (lower === needle || lower.startsWith(`${needle} `)) return label
+  }
+  const words = cleaned.split(/\s+/).filter((w) => w && !SPENDER_STOP.has(w.toLowerCase()))
+  if (words.length === 0) return 'Unknown'
+  const first = words[0]
+  const label = first.length <= 2 && words[1] ? `${first} ${words[1]}` : first
+  return titleCase(label).slice(0, 32)
+}
+
+function titleCase(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (c) => c.toUpperCase())
+}
+
+export function spendByName(txns) {
+  const map = new Map()
+  for (const t of txns) {
+    if (!t || t.amount >= 0) continue
+    const name = spenderName(t.desc || t.category)
+    const key = normalizeName(name)
+    if (!map.has(key)) {
+      map.set(key, { name, total: 0, count: 0, lastDate: '', categories: new Set(), accounts: new Set() })
+    }
+    const g = map.get(key)
+    g.total += -t.amount
+    g.count++
+    if (!g.lastDate || t.date > g.lastDate) g.lastDate = t.date
+    if (t.category) g.categories.add(t.category)
+    g.accounts.add(t.account || 'Bank')
+  }
+  return [...map.values()]
+    .map((g) => ({ ...g, categories: [...g.categories], accounts: [...g.accounts] }))
+    .sort((a, b) => b.total - a.total)
+}
+
+export function accountSummaries(txns, accounts = ACCOUNTS) {
+  const map = new Map()
+  for (const account of accounts) {
+    map.set(account, { account, spent: 0, income: 0, net: 0, count: 0, lastDate: '' })
+  }
+  for (const t of txns) {
+    if (!t) continue
+    const account = t.account || 'Bank'
+    if (!map.has(account)) {
+      map.set(account, { account, spent: 0, income: 0, net: 0, count: 0, lastDate: '' })
+    }
+    const g = map.get(account)
+    if (t.amount < 0) g.spent += -t.amount
+    else g.income += t.amount
+    g.net = g.income - g.spent
+    g.count++
+    if (!g.lastDate || t.date > g.lastDate) g.lastDate = t.date
+  }
+  return [...map.values()]
+}
+
+export function mergeStates(localState, cloudState) {
+  const a = localState || emptyState()
+  const b = cloudState || emptyState()
+  const txnMap = new Map()
+  for (const t of a.txns || []) {
+    if (t && t.id) txnMap.set(t.id, t)
+  }
+  for (const t of b.txns || []) {
+    if (t && t.id) txnMap.set(t.id, t)
+  }
+  const txns = dedupeTxns([...txnMap.values()]).sort((x, y) => (x.date < y.date ? 1 : -1))
+  const categories = [...new Set([...(a.categories || []), ...(b.categories || [])])]
+  for (const c of DEFAULT_CATEGORIES) {
+    if (!categories.includes(c)) categories.push(c)
+  }
+  const peopleMap = new Map()
+  for (const p of [...(a.people || []), ...(b.people || [])]) {
+    if (!p || !p.name) continue
+    peopleMap.set(normalizeName(p.name), p)
+  }
+  const goalsMap = new Map()
+  for (const g of [...(a.goals || []), ...(b.goals || [])]) {
+    if (g && g.id) goalsMap.set(g.id, g)
+  }
+  const recurringMap = new Map()
+  for (const r of [...(a.recurring || []), ...(b.recurring || [])]) {
+    if (r && r.id) recurringMap.set(r.id, r)
+  }
+  const accounts = [...new Set([...(a.accounts || ACCOUNTS), ...(b.accounts || ACCOUNTS)])]
+  for (const acc of ACCOUNTS) {
+    if (!accounts.includes(acc)) accounts.push(acc)
+  }
+  return {
+    txns,
+    balances: { ...(a.balances || {}), ...(b.balances || {}) },
+    categories,
+    people: [...peopleMap.values()],
+    budgets: { ...(a.budgets || {}), ...(b.budgets || {}) },
+    goals: [...goalsMap.values()],
+    accounts,
+    recurring: [...recurringMap.values()],
+  }
 }
 
 export function loadState() {
@@ -240,6 +475,28 @@ export function loadState() {
       }
     }
     const people = [...peopleMap.values()]
+    const accounts = [...new Set(
+      (Array.isArray(data.accounts) ? data.accounts : [])
+        .map((a) => String(a || '').trim())
+        .filter(Boolean),
+    )]
+    for (const a of ACCOUNTS) {
+      if (!accounts.includes(a)) accounts.push(a)
+    }
+    const recurring = (Array.isArray(data.recurring) ? data.recurring : [])
+      .filter((r) => r && typeof r === 'object' && r.id && Number(r.amount) > 0)
+      .map((r) => ({
+        id: String(r.id),
+        desc: String(r.desc || 'Recurring').slice(0, 80),
+        amount: Math.abs(Number(r.amount) || 0),
+        type: r.type === 'income' ? 'income' : 'expense',
+        category: String(r.category || categorize(r.desc, people, -Math.abs(Number(r.amount) || 1))),
+        method: String(r.method || 'UPI'),
+        account: accounts.includes(r.account) ? r.account : 'Bank',
+        freq: ['weekly', 'monthly', 'yearly'].includes(r.freq) ? r.freq : 'monthly',
+        nextDate: /^\d{4}-\d{2}-\d{2}$/.test(String(r.nextDate || '')) ? r.nextDate : todayStr(),
+        active: r.active !== false,
+      }))
     return {
       txns,
       balances: data.balances && typeof data.balances === 'object' ? data.balances : {},
@@ -247,6 +504,8 @@ export function loadState() {
       people,
       budgets: data.budgets && typeof data.budgets === 'object' ? data.budgets : {},
       goals: Array.isArray(data.goals) ? data.goals : [],
+      accounts,
+      recurring,
     }
   } catch {
     return emptyState()
@@ -558,7 +817,7 @@ export function detectSubscriptions(txns) {
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(t)
   }
-  for (const [key, group] of groups) {
+  for (const [, group] of groups) {
     if (group.length < 3) continue
     const months = new Set(group.map((t) => t.date.slice(0, 7)))
     if (months.size < 3) continue
